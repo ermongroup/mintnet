@@ -59,7 +59,7 @@ class BasicBlockA(nn.Module):
         # Mask out the element above diagonal
         self.mask = np.ones((input_dim, input_dim, kernel, kernel), dtype=np.float32)        
 
-        #i=0:Red channel;i=1:Green channel;i=2:Blue channel
+        #For RGB ONLY:i=0:Red channel;i=1:Green channel;i=2:Blue channel 
         for i in range(input_dim):
             self.mask0[i,i,kernel_mid_y,kernel_mid_x] = 0.0
             self.mask1[i,i,kernel_mid_y,kernel_mid_x] = 1.0
