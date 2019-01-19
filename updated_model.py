@@ -238,26 +238,23 @@ class Net(nn.Module):
     #layers latent_dim at each layer
     def __init__(self, blockA, blockB, layer_size, latent_size, image_size=32, input_channel=3, num_classes=10):
         self.inplanes = input_channel
-
         super(Net, self).__init__()
         channel = input_channel
         self.increase_dim = SpaceToDepth(4)
-        #channel *= 2**2
         self.layer1 = self._make_layer(layer_size[0], blockA, blockB, latent_size[0], channel)
         #ADD MORE LAYERS   
         channel *= 4*4  
         self.layer2 = self._make_layer(layer_size[1], blockA, blockB, latent_size[1], channel)
+        #self.layer3 = self._make_layer(layer_size[2], blockA, blockB, latent_size[2],channel)
+        #self.layer4 = self._make_layer(layer_size[3], blockA, blockB, latent_size[3],channel)
         self.fc = nn.Linear(input_channel * image_size * image_size, num_classes)
-        
 
     def _make_layer(self, block_num, blockA, blockB, latent_dim, input_dim, stride=1):
         layers = []
-
         for i in range(1, block_num):
             layers.append(blockA(latent_dim,input_dim=input_dim))
             layers.append(blockB(latent_dim,input_dim=input_dim))
         return nn.Sequential(*layers)
-
 
     def forward(self, x):
         x = self.layer1(x)
