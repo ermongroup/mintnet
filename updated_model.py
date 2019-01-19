@@ -94,8 +94,6 @@ class BasicBlockA(nn.Module):
             for j in range(self.latent_dim):
                 latent_output = F.conv2d(latent1[j],\
                 (self.weight_list2[i*self.latent_dim+j]*self.mask0 + self.center_list[j]*self.mask1)*self.mask, bias=self.bias_list2[i*self.latent_dim+j], padding=1)
-                #latent_output = F.leaky_relu(latent_output)
-                #latent_output = self.bn1(latent_output)
                 latent2.append(latent_output)
         #check whether it's the correct sum
         output = torch.stack(latent2, dim=0)
@@ -179,8 +177,6 @@ class BasicBlockB(nn.Module):
             for j in range(self.latent_dim):
                 latent_output = F.conv2d(latent1[j],\
                 (self.weight_list2[i*self.latent_dim+j]*self.mask0 + self.center_list[j]*self.mask1)*self.mask, bias=self.bias_list2[i*self.latent_dim+j], padding=1)
-                #latent_output = F.leaky_relu(latent_output)
-                #latent_output = self.bn1(latent_output)
                 latent2.append(latent_output)
         #check whether it's the correct sum
         output = torch.stack(latent2, dim=0)
