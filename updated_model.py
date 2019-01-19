@@ -17,7 +17,6 @@ device = torch.device('cuda')
 
 #DO NOT FORGET BATCH NORMALIZATION!!!
 #UPPER TRIANGULAR
-#NEED TO ADD BIAS
 class BasicBlockA(nn.Module):
 #Input_dim should be 1(grey scale image) or 3(RGB image), or other dimension if use SpaceToDepth
     def __init__(self, latent_dim, stride=1, input_dim=3, kernel=3):
@@ -80,7 +79,6 @@ class BasicBlockA(nn.Module):
 
         # double check latent_output(feature) is correct?
         self.bn1 = nn.BatchNorm2d(input_dim)
-        #self.bn2 = nn.BatchNorm2d(planes)
 
 
     def forward(self, x):
@@ -95,20 +93,16 @@ class BasicBlockA(nn.Module):
         latent2 = []
         for i in range(self.latent_dim):
             for j in range(self.latent_dim):
-                #self.weight_list2[i*self.latent_dim+j]
                 latent_output = F.conv2d(latent1[j],\
                 (self.weight_list2[i*self.latent_dim+j]*self.mask0 + self.center_list[j]*self.mask1)*self.mask, bias=self.bias_list2[i*self.latent_dim+j], padding=1)
                 #latent_output = F.leaky_relu(latent_output)
                 #latent_output = self.bn1(latent_output)
                 latent2.append(latent_output)
         #check whether it's the correct sum
-        #output = torch.cat(latent2,dim=0) 
-       
         output = torch.stack(latent2, dim=0)
         output = output.sum(dim=0)/len(latent2)
         output = self.bn1(output)
         output += residual
-        #output = F.leaky_relu(latent_output) #DO NOT ADD ACTIVATION FUNCTION HERE
         return output
 
 
@@ -159,22 +153,17 @@ class BasicBlockB(nn.Module):
         for i in range(input_dim):
             self.mask0[i,i,kernel_mid_y,kernel_mid_x] = 0.0
             self.mask1[i,i,kernel_mid_y,kernel_mid_x] = 1.0
-
             self.mask[i,:, :kernel_mid_y, :] = 0.0
             # For the current and latter color channels, including the current color
             self.mask[i,i:, kernel_mid_y, :kernel_mid_x] = 0.0
-
             # For the previous color channels, not including the current color
-            #self.mask[i,i+1:,kernel_mid_y+1:, :] = 0.0
             self.mask[i,:i, kernel_mid_y, :kernel_mid_x+1] = 0.0
 
         self.mask0 = torch.Tensor(self.mask0).to(device)
         self.mask1 = torch.Tensor(self.mask1).to(device)
         self.mask = torch.Tensor(self.mask).to(device)
-
         # double check latent_output(feature) is correct?
         self.bn1 = nn.BatchNorm2d(input_dim)
-
 
 
     def forward(self, x):
@@ -189,19 +178,16 @@ class BasicBlockB(nn.Module):
         latent2 = []
         for i in range(self.latent_dim):
             for j in range(self.latent_dim):
-                #self.weight_list2[i*self.latent_dim+j]
                 latent_output = F.conv2d(latent1[j],\
                 (self.weight_list2[i*self.latent_dim+j]*self.mask0 + self.center_list[j]*self.mask1)*self.mask, bias=self.bias_list2[i*self.latent_dim+j], padding=1)
                 #latent_output = F.leaky_relu(latent_output)
                 #latent_output = self.bn1(latent_output)
                 latent2.append(latent_output)
         #check whether it's the correct sum
-        #output = torch.cat(latent2,dim=0)
         output = torch.stack(latent2, dim=0)
         output = output.sum(dim=0)/len(latent2)
         output = self.bn1(output)
         output += residual
-        #output = F.leaky_relu(latent_output) DO NOT ADD ACTIVATION FUNCTION HERE 
         return output
 
 
@@ -240,7 +226,6 @@ class SpaceToDepth(nn.Module):
         d_width = int(s_width / self.block_size)
         d_height = int(s_height / self.block_size)
         t_1 = output.split(self.block_size, 2)
-        #pdb.set_trace()
         stack = [t_t.reshape(batch_size, d_height, d_depth) for t_t in t_1]
         output = torch.stack(stack, 1)
         output = output.permute(0, 2, 1, 3)
@@ -275,7 +260,6 @@ class Net(nn.Module):
 
 
     def forward(self, x):
-        #x = self.increase_dim(x)
         x = self.layer1(x)
         x = self.increase_dim(x)
         x = self.layer2(x)
