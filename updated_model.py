@@ -16,7 +16,6 @@ device = torch.device('cuda')
 #device = torch.device('cpu')
 
 #DO NOT FORGET BATCH NORMALIZATION!!!
-#UPPER TRIANGULAR
 class BasicBlockA(nn.Module):
 #Input_dim should be 1(grey scale image) or 3(RGB image), or other dimension if use SpaceToDepth
     def __init__(self, latent_dim, stride=1, input_dim=3, kernel=3):
