@@ -15,7 +15,13 @@ device = torch.device('cuda')
 
 #device = torch.device('cpu')
 
-#DO NOT FORGET BATCH NORMALIZATION!!!
+def leaky_relu_derivative(x,slope):
+    if x > 0:
+        return 1
+    return slope
+
+
+#DO NOT FORGET ACTNORM!!!
 class BasicBlockA(nn.Module):
 #Input_dim should be 1(grey scale image) or 3(RGB image), or other dimension if use SpaceToDepth
     def __init__(self, latent_dim, stride=1, input_dim=3, kernel=3):
@@ -77,7 +83,7 @@ class BasicBlockA(nn.Module):
         self.mask = torch.Tensor(self.mask).to(device)
 
         # double check latent_output(feature) is correct?
-        self.bn1 = nn.BatchNorm2d(input_dim)
+        #self.bn1 = nn.BatchNorm2d(input_dim)
 
 
     def forward(self, x):
@@ -85,7 +91,7 @@ class BasicBlockA(nn.Module):
         latent1 = []
         for i in range(self.latent_dim):
             latent_output = F.conv2d(x, (self.weight_list1[i]*self.mask0 + self.center_list[i]*self.mask1)*self.mask, bias=self.bias_list1[i],padding=1)
-            latent_output = self.bn1(latent_output)
+            #latent_output = self.bn1(latent_output)
             latent_output = F.leaky_relu(latent_output,negative_slope=0.1)
             latent1.append(latent_output)
 
@@ -98,7 +104,7 @@ class BasicBlockA(nn.Module):
         #check whether it's the correct sum
         output = torch.stack(latent2, dim=0)
         output = output.sum(dim=0)/len(latent2)
-        output = self.bn1(output)
+        #output = self.bn1(output)
         output += residual
         return output
 
@@ -160,7 +166,7 @@ class BasicBlockB(nn.Module):
         self.mask1 = torch.Tensor(self.mask1).to(device)
         self.mask = torch.Tensor(self.mask).to(device)
         # double check latent_output(feature) is correct?
-        self.bn1 = nn.BatchNorm2d(input_dim)
+        #self.bn1 = nn.BatchNorm2d(input_dim)
 
 
     def forward(self, x):
@@ -168,7 +174,7 @@ class BasicBlockB(nn.Module):
         latent1 = []
         for i in range(self.latent_dim):
             latent_output = F.conv2d(x, (self.weight_list1[i]*self.mask0 + self.center_list[i]*self.mask1)*self.mask, bias=self.bias_list1[i],padding=1)
-            latent_output = self.bn1(latent_output)
+            #latent_output = self.bn1(latent_output)
             latent_output = F.leaky_relu(latent_output,negative_slope=0.1)
             latent1.append(latent_output)
 
@@ -181,7 +187,7 @@ class BasicBlockB(nn.Module):
         #check whether it's the correct sum
         output = torch.stack(latent2, dim=0)
         output = output.sum(dim=0)/len(latent2)
-        output = self.bn1(output)
+        #output = self.bn1(output)
         output += residual
         return output
 
