@@ -100,11 +100,12 @@ class BasicBlockA(nn.Module):
         latent2 = []
         for i in range(self.latent_dim):
             for j in range(self.latent_dim):
-                latent_output = F.conv2d(latent1[j], \
+                latent_output = F.conv2d(latent1[j],
                                          (self.weight_list2[i * self.latent_dim + j] * self.mask0 + self.center_list[
-                                             j] * self.mask1) * self.mask,
+                                             i] * self.mask1) * self.mask,
                                          bias=self.bias_list2[i * self.latent_dim + j], padding=1)
                 latent2.append(latent_output)
+
         # check whether it's the correct sum
         output = torch.stack(latent2, dim=0)
         output = output.sum(dim=0) / len(latent2)
