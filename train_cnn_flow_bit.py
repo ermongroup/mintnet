@@ -8,6 +8,9 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 device = torch.device('cuda')
 # device = torch.device('cpu')
 
+torch.manual_seed(0)
+np.random.seed(0)
+
 n_epochs = 500
 batch_size_train = 64
 batch_size_test = 64  # 1000
@@ -15,23 +18,26 @@ learning_rate = 1.5e-3  # 5e-7
 momentum = 0.9
 log_interval = 10
 
-lambda_logit = 1e-6 #for MNIST
-#lambda_logit = 0.05
+#lambda_logit = 1e-6 #for MNIST
+lambda_logit = 0.05
 
 
 train_loader = torch.utils.data.DataLoader(
- torchvision.datasets.MNIST('./files/', train=True, download=True,
+ torchvision.datasets.MNIST('./mnist/', train=True, download=True,
                             transform=torchvision.transforms.Compose([
                               torchvision.transforms.ToTensor()])),
+                            #transform=torchvision.transforms.Compose([transforms.ToPILImage()])),
  batch_size=batch_size_train, shuffle=True)
 
 test_loader = torch.utils.data.DataLoader(
-torchvision.datasets.MNIST('./files/', train=False, download=True,
+torchvision.datasets.MNIST('./mnist/', train=False, download=True,
                             transform=torchvision.transforms.Compose([
                               torchvision.transforms.ToTensor()])),
+                           #transform=torchvision.transforms.Compose([transforms.ToPILImage()])),
  batch_size=batch_size_test, shuffle=True)
+
 #[2, 2, 1, 1], [4, 1, 1, 1]
-net = Net(BasicBlockA, BasicBlockB, [4, 4, 1, 1], [2, 2, 1, 1], image_size=28, input_channel=1).to(device)
+net = Net(BasicBlockA, BasicBlockB, [2, 2, 1, 1], [32, 16, 8, 1], image_size=28, input_channel=1).to(device)
 
 
 '''
@@ -53,7 +59,7 @@ net = Net(BasicBlockA, BasicBlockB, [4, 4, 1, 1], [1, 1, 1, 1], image_size=32, i
 '''
 
 
-optimizer = optim.Adam(net.parameters(), weight_decay=1e-6, lr=learning_rate)
+optimizer = optim.Adam(net.parameters(), weight_decay=1e-8, lr=learning_rate)
 
 stats = {}
 stats['train_loss'] = []
@@ -76,6 +82,16 @@ def sigmoid(x):
 # Train the model
 for _ in range(n_epochs):
     # gradually change learning rate
+    if _ == 10:
+        learning_rate /= 5
+    if _ == 20:
+        learning_rate /= 2
+    
+    #only later added!!
+    if _ == 21:
+        learning_rate /= 10
+        
+        
     lr_scheduler.step()
     print('Now processing epoch {}'.format(_))
     train_loss = 0
@@ -84,7 +100,7 @@ for _ in range(n_epochs):
     train_count = 0 #number of train samples 
     net.train()
     for batch_idx, (data, target) in enumerate(train_loader):
-        if train_count > 10000: break
+        #if train_count > 6000: break
         batch_num += 1
         if data.shape[0] != batch_size_train: continue
 
@@ -116,7 +132,7 @@ for _ in range(n_epochs):
     batch_test = 0
     with torch.no_grad():
         for data, target in test_loader:
-            if test_count != 0: break
+            #if test_count != 0: break
             if data.shape[0] != batch_size_train: continue
             batch_test += 1
             # transform to logit space
