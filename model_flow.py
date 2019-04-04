@@ -1,3 +1,6 @@
+# instead of sharing the middle weights for the kernal, we take the abs of the middle weights to make sure
+# the product is none negative
+
 import os
 import argparse
 import torch
@@ -14,19 +17,54 @@ import math
 from collections import defaultdict
 import time
 import pdb
-#torch.manual_seed(0)
-#np.random.seed(0)
+torch.manual_seed(0)
+np.random.seed(0)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+#os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+
 device = torch.device('cuda') 
-
-
 #device = torch.device('cpu')
+
 def leaky_relu_derivative(x, slope):  
     slope1 = torch.ones_like(x).detach()
     slope2 = torch.ones_like(x).detach() * slope
     return torch.where(x > 0, slope1, slope2).detach()
+
+
+def elu_derivative(x, slope):  
+    slope1 = torch.ones_like(x).detach()
+    slope2 = torch.exp(x).detach() * slope
+    return torch.where(x > 0, slope1, slope2).detach()
+
+
+def leaky_relu(x, log_det, slope):
+    slope1 = torch.ones_like(x).detach()
+    slope2 = torch.ones_like(x).detach() * slope
+    x = F.leaky_relu(x, negative_slope=slope)
+    #pdb.set_trace()
+    log_det += torch.sum(torch.log(torch.where(x > 0, slope1, slope2)))
+    return x, log_det
     
+# invertible batch norm 
+# see paper: Masked Autoregressive Flow for Density Estimation
+EPSILON = 1e-8
+'''
+def batch_norm(output, log_det):
+    m = output.mean().item()
+    v = output.var().item()
+    u = (output - m) /np.sqrt(v + EPSILON)
+    log_det += np.sum(- 0.5 * np.log(v + EPSILON))
+    return u, log_det
+'''
+
+def batch_norm(output, log_det, beta, gamma):
+    m = output.mean().item()
+    v = output.var().item()
+    u = (output - m) * torch.exp(gamma)/np.sqrt(v + EPSILON) + beta
+    log_det += torch.sum(gamma - 0.5 * np.log(v + EPSILON))
+    return u, log_det
+
 
 #DO NOT FORGET ACTNORM!!!
 class BasicBlockA(nn.Module):
@@ -37,7 +75,7 @@ class BasicBlockA(nn.Module):
         self.latent_dim = latent_dim               
         self.kernel = kernel
         self.weight_list1 = nn.ParameterList()
-        self.center_list = nn.ParameterList()
+        self.center_list1 = nn.ParameterList()
         self.bias_list1 = nn.ParameterList()
         self.res = nn.Parameter(torch.ones(1))
         
@@ -48,17 +86,19 @@ class BasicBlockA(nn.Module):
             nn.init.normal_(bias)
             self.weight_list1.append(nn.Parameter(weight))
             self.bias_list1.append(nn.Parameter(bias))
-            center = np.random.randn(input_dim, input_dim, kernel, kernel)
-            self.center_list.append(nn.Parameter(torch.Tensor(center)))
+            center = torch.Tensor(np.random.randn(input_dim, input_dim, kernel, kernel))
+            self.center_list1.append(nn.Parameter(center))
             
-
+        self.center_list2 = nn.ParameterList()
         self.weight_list2 = nn.ParameterList()
         self.bias_list2 = nn.ParameterList()
-        for i in range(latent_dim**2):
+        for i in range(latent_dim):
+            center = torch.Tensor(np.random.randn(input_dim, input_dim, kernel, kernel))
             weight = torch.Tensor(input_dim, input_dim, kernel, kernel)
             nn.init.xavier_normal_(weight)
             bias = torch.Tensor(input_dim)
             nn.init.normal_(bias)
+            self.center_list2.append(nn.Parameter(center))
             self.weight_list2.append(nn.Parameter(weight))
             self.bias_list2.append(nn.Parameter(bias))
 
@@ -83,7 +123,6 @@ class BasicBlockA(nn.Module):
             self.mask[i,:i+1, kernel_mid_y, kernel_mid_x+1:] = 0.0
             # For the latter color channels, not including the current color
             self.mask[i, i+1:, kernel_mid_y, kernel_mid_x:] = 0.0
-
         self.mask0 = torch.Tensor(self.mask0).to(device)
         self.mask1 = torch.Tensor(self.mask1).to(device)
         self.mask = torch.Tensor(self.mask).to(device)
@@ -98,29 +137,30 @@ class BasicBlockA(nn.Module):
         self.diag = torch.zeros(x.size(), device= device)
         
         for i in range(self.latent_dim):
-            latent_output = F.conv2d(x, (self.weight_list1[i]*self.mask0 + self.center_list[i]*self.mask1)*self.mask, bias=self.bias_list1[i], padding=1)
-
+            latent_output = F.conv2d(x, (self.weight_list1[i]*self.mask0 + torch.nn.functional.softplus(self.center_list1[i])*self.mask1)*self.mask, bias=self.bias_list1[i], padding=1)      
             for j in range(self.input_dim):
-                self.diag[:,j,:,:] = self.diag[:,j,:,:] + ((self.center_list[i][j, j, self.kernel//2, self.kernel//2])**2) * leaky_relu_derivative(latent_output[:,j,:,:], 0.1)                
-            
-            latent_output = F.leaky_relu(latent_output,negative_slope=0.1)
+                self.diag[:,j,:,:] = self.diag[:,j,:,:] + (torch.nn.functional.softplus(self.center_list1[i][j, j, self.kernel//2, self.kernel//2]) * torch.nn.functional.softplus(self.center_list2[i][j, j, self.kernel//2, self.kernel//2])) * elu_derivative(latent_output[:,j,:,:], 1)
+           
+            latent_output = F.elu(latent_output, alpha=1)
             latent1.append(latent_output)
             
         latent2 = []
-        # remove for loops. Whether can do everything using one convolution. torch.einsum()
         for i in range(self.latent_dim):
-            for j in range(self.latent_dim):
-                latent_output = F.conv2d(latent1[j],\
-                (self.weight_list2[i*self.latent_dim+j]*self.mask0 + self.center_list[j]*self.mask1)*self.mask, bias=self.bias_list2[i*self.latent_dim+j], padding=1)
-                latent2.append(latent_output)
+            latent_output = F.conv2d(latent1[i],\
+            (self.weight_list2[i]*self.mask0 + torch.nn.functional.softplus(self.center_list2[i]) *self.mask1)*self.mask, bias=self.bias_list2[i], padding=1)
+            latent2.append(latent_output)
         
-            
         output = torch.stack(latent2, dim=0)
         output = output.sum(dim=0)/len(latent2)
         mask_res = (self.res>0).float().to(device)
-        output = output + self.res * mask_res * residual  
-        self.diag = self.diag + self.res * mask_res
-        log_det = log_det + torch.sum(torch.log(self.diag))
+        
+        #MIGHT NEED TO ADD EPSILON TO self.res * mask_res
+        output = output + self.res * mask_res * residual 
+        self.diag = self.diag/len(latent2) + self.res * mask_res
+        log_det += torch.sum(torch.log(self.diag))
+        
+        # need to act_norm
+
         return output, log_det
 
 
@@ -132,7 +172,7 @@ class BasicBlockB(nn.Module):
         self.latent_dim = latent_dim               
         self.kernel = kernel
         self.weight_list1 = nn.ParameterList()
-        self.center_list = nn.ParameterList()
+        self.center_list1 = nn.ParameterList()
         self.bias_list1 = nn.ParameterList()
         self.res = nn.Parameter(torch.ones(1))
         
@@ -143,16 +183,19 @@ class BasicBlockB(nn.Module):
             nn.init.normal_(bias)
             self.weight_list1.append(nn.Parameter(weight))
             self.bias_list1.append(nn.Parameter(bias))
-            center = np.random.randn(input_dim, input_dim, kernel, kernel)
-            self.center_list.append(nn.Parameter(torch.Tensor(center)))
+            center = torch.Tensor(np.random.randn(input_dim, input_dim, kernel, kernel))
+            self.center_list1.append(nn.Parameter(center))
 
+        self.center_list2 = nn.ParameterList()
         self.weight_list2 = nn.ParameterList()
         self.bias_list2 = nn.ParameterList()
-        for i in range(latent_dim**2):
+        for i in range(latent_dim):
+            center = torch.Tensor(np.random.randn(input_dim, input_dim, kernel, kernel))
             weight = torch.Tensor(input_dim, input_dim, kernel, kernel)
             nn.init.xavier_normal_(weight)
             bias = torch.Tensor(input_dim)
             nn.init.normal_(bias)
+            self.center_list2.append(nn.Parameter(center))
             self.weight_list2.append(nn.Parameter(weight))
             self.bias_list2.append(nn.Parameter(bias))
 
@@ -188,34 +231,33 @@ class BasicBlockB(nn.Module):
         x = x[0]
         residual = x        
         latent1 = []  
-        #changed use to be zeros
         self.diag = torch.zeros(x.size(), device= device)
-        
+
         for i in range(self.latent_dim):
-            latent_output = F.conv2d(x, (self.weight_list1[i]*self.mask0 + self.center_list[i]*self.mask1)*self.mask, bias=self.bias_list1[i], padding=1)
-          
-            
+            latent_output = F.conv2d(x, (self.weight_list1[i]*self.mask0 + torch.nn.functional.softplus(self.center_list1[i]) * self.mask1)*self.mask, bias=self.bias_list1[i], padding=1)
             for j in range(self.input_dim):
-                #pdb.set_trace()
-                self.diag[:,j,:,:] = self.diag[:,j,:,:] + ((self.center_list[i][j, j, self.kernel//2, self.kernel//2])**2) * leaky_relu_derivative(latent_output[:,j,:,:], 0.1)                
+                self.diag[:,j,:,:] = self.diag[:,j,:,:] + (torch.nn.functional.softplus(self.center_list1[i][j, j, self.kernel//2, self.kernel//2]) * torch.nn.functional.softplus(self.center_list2[i][j, j, self.kernel//2, self.kernel//2])) * elu_derivative(latent_output[:,j,:,:], 1)
             
-            latent_output = F.leaky_relu(latent_output,negative_slope=0.1)
+            latent_output = F.elu(latent_output,alpha=1)
             latent1.append(latent_output)
       
         latent2 = []
-        # remove for loops. Whether can do everything using one convolution. torch.einsum()
         for i in range(self.latent_dim):
-            for j in range(self.latent_dim):
-                latent_output = F.conv2d(latent1[j],\
-                (self.weight_list2[i*self.latent_dim+j]*self.mask0 + self.center_list[j]*self.mask1)*self.mask, bias=self.bias_list2[i*self.latent_dim+j], padding=1)
-                latent2.append(latent_output)
+            latent_output = F.conv2d(latent1[i],\
+            (self.weight_list2[i]*self.mask0 + torch.nn.functional.softplus(self.center_list2[i]) * self.mask1) * self.mask, bias=self.bias_list2[i], padding=1)
+            latent2.append(latent_output)
          
         output = torch.stack(latent2, dim=0)
         output = output.sum(dim=0)/len(latent2)
         mask_res = (self.res>0).float().to(device)
-        output = output + self.res * mask_res * residual  
-        self.diag = self.diag + self.res * mask_res
-        log_det = log_det + torch.sum(torch.log(self.diag))
+        output = output + self.res * mask_res * residual
+       
+        self.diag = self.diag/len(latent2) + self.res * mask_res
+        log_det += torch.sum(torch.log(self.diag))
+        
+        #need to add act_norm
+        
+        
         return output, log_det
 
 
@@ -246,15 +288,17 @@ class Net(nn.Module):
         super(Net, self).__init__()
         channel = input_channel
         self.increase_dim = SpaceToDepth(4)
+        #self.increase_dim = SpaceToDepth(2)
         self.layer1 = self._make_layer(layer_size[0], blockA, blockB, latent_size[0], channel)
+        #channel *= 2 * 2
         #channel *= 4 * 4
-        self.layer2 = self._make_layer(layer_size[1], blockA, blockB, latent_size[0], channel)
-        self.layer3 = self._make_layer(layer_size[2], blockA, blockB, latent_size[0], channel)
+        self.layer2 = self._make_layer(layer_size[1], blockA, blockB, latent_size[1], channel)
+        self.layer3 = self._make_layer(layer_size[2], blockA, blockB, latent_size[2], channel)
 
 
     def _make_layer(self, block_num, blockA, blockB, latent_dim, input_dim, stride=1):
         layers = []
-        for i in range(0, 1):
+        for i in range(0, block_num):
             layers.append(blockA(latent_dim,input_dim=input_dim))
             layers.append(blockB(latent_dim,input_dim=input_dim))
         return nn.Sequential(*layers)
@@ -262,10 +306,13 @@ class Net(nn.Module):
     def forward(self, x):
         log_det = torch.zeros([1], device = device)
         x, log_det = self.layer1([x, log_det])
+        #x, log_det = leaky_relu(x, log_det, 0.01)
         #x = self.increase_dim(x)
         x, log_det = self.layer2([x, log_det])
-        #x, log_det = self.layer3([x, log_det])
-        
+        #x, log_det = leaky_relu(x, log_det, 0.01)
+        x, log_det = self.layer3([x, log_det])
+        #x, log_det = leaky_relu(x, log_det, 0.01)
+        #x, log_det = self.layer4([x, log_det])
         x = x.view(x.shape[0], -1)
         return x, log_det 
 
