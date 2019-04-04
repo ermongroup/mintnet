@@ -9,21 +9,19 @@ torch.manual_seed(0)
 np.random.seed(0)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
-#os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+
+
 device = torch.device('cuda')
 # device = torch.device('cpu')
-
 n_epochs = 500
 batch_size_train = 64
-batch_size_test = 64  # 1000
-learning_rate = 1e-2  # 5e-7
+batch_size_test = 64  
+learning_rate = 1e-2 
 momentum = 0.9
 log_interval = 10
 
+
 lambda_logit = 1e-6 #for MNIST
-#lambda_logit = 0.05
-
-
 train_loader = torch.utils.data.DataLoader(
  torchvision.datasets.MNIST('./mnist/', train=True, download=True,
                             transform=torchvision.transforms.Compose([
@@ -35,11 +33,12 @@ torchvision.datasets.MNIST('./mnist/', train=False, download=True,
                             transform=torchvision.transforms.Compose([
                               torchvision.transforms.ToTensor()])),
  batch_size=batch_size_test, shuffle=True)
-#[2, 2, 1, 1], [4, 1, 1, 1]
+
 net = Net(BasicBlockA, BasicBlockB, [2, 2, 1, 1], [16, 8, 4, 1], image_size=28, input_channel=1).to(device)
 
 
 '''
+lambda_logit = 0.05 #for CIFAR10
 train_loader = torch.utils.data.DataLoader(
     torchvision.datasets.CIFAR10('./dataset/', train=True, download=True,
                                  transform=torchvision.transforms.Compose([
@@ -98,7 +97,6 @@ for _ in range(n_epochs):
     train_count = 0 #number of train samples 
     net.train()
     for batch_idx, (data, target) in enumerate(train_loader):
-        #if train_count > 1000: break
         batch_num += 1
         if data.shape[0] != batch_size_train: continue
 
@@ -123,6 +121,8 @@ for _ in range(n_epochs):
     stats['train_loss'].append(train_loss)
     print('Average Training Loss: {}. \n'.format(train_loss/batch_num))
 
+    
+    
     # Test
     net.eval()
     test_loss = 0
@@ -130,7 +130,6 @@ for _ in range(n_epochs):
     batch_test = 0
     with torch.no_grad():
         for data, target in test_loader: 
-            #if batch_test >0: break
             if data.shape[0] != batch_size_test: continue
             batch_test += 1
             # transform to logit space

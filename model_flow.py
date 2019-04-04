@@ -21,7 +21,7 @@ torch.manual_seed(0)
 np.random.seed(0)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
-#os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+
 
 device = torch.device('cuda') 
 #device = torch.device('cpu')

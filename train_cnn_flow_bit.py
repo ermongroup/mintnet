@@ -13,34 +13,31 @@ np.random.seed(0)
 
 n_epochs = 500
 batch_size_train = 64
-batch_size_test = 64  # 1000
-learning_rate = 1.5e-3  # 5e-7
+batch_size_test = 64  
+learning_rate = 1.5e-3  
 momentum = 0.9
 log_interval = 10
 
-#lambda_logit = 1e-6 #for MNIST
-lambda_logit = 0.05
 
-
+lambda_logit = 1e-6 #for MNIST
 train_loader = torch.utils.data.DataLoader(
  torchvision.datasets.MNIST('./mnist/', train=True, download=True,
                             transform=torchvision.transforms.Compose([
-                              torchvision.transforms.ToTensor()])),
-                            #transform=torchvision.transforms.Compose([transforms.ToPILImage()])),
+                              torchvision.transforms.ToTensor()])),                            
  batch_size=batch_size_train, shuffle=True)
+
 
 test_loader = torch.utils.data.DataLoader(
 torchvision.datasets.MNIST('./mnist/', train=False, download=True,
                             transform=torchvision.transforms.Compose([
-                              torchvision.transforms.ToTensor()])),
-                           #transform=torchvision.transforms.Compose([transforms.ToPILImage()])),
+                              torchvision.transforms.ToTensor()])),                           
  batch_size=batch_size_test, shuffle=True)
 
-#[2, 2, 1, 1], [4, 1, 1, 1]
 net = Net(BasicBlockA, BasicBlockB, [2, 2, 1, 1], [32, 16, 8, 1], image_size=28, input_channel=1).to(device)
 
 
 '''
+lambda_logit = 0.05 #for CIFAR10
 train_loader = torch.utils.data.DataLoader(
     torchvision.datasets.CIFAR10('./dataset/', train=True, download=True,
                                  transform=torchvision.transforms.Compose([
@@ -100,7 +97,7 @@ for _ in range(n_epochs):
     train_count = 0 #number of train samples 
     net.train()
     for batch_idx, (data, target) in enumerate(train_loader):
-        #if train_count > 6000: break
+        
         batch_num += 1
         if data.shape[0] != batch_size_train: continue
 
@@ -132,7 +129,7 @@ for _ in range(n_epochs):
     batch_test = 0
     with torch.no_grad():
         for data, target in test_loader:
-            #if test_count != 0: break
+            
             if data.shape[0] != batch_size_train: continue
             batch_test += 1
             # transform to logit space
@@ -148,8 +145,7 @@ for _ in range(n_epochs):
             loss = flow_loss(output, log_det, False).item()
             #test_loss += loss
             test_loss += (loss - log_det_logit) * (1/(np.log(2)*np.prod(data.shape))) 
-            
-        #test_loss /= (test_count)
+                    
         stats['val_loss'].append(test_loss)
         print('\nTest set: loss: {:.4f}\n'.format(test_loss/batch_test + 8))
         
