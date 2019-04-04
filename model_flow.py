@@ -1,4 +1,4 @@
-# instead of sharing the middle weights for the kernal, we take the abs of the middle weights to make sure
+# instead of sharing the middle weights for the kernal, we take the softplus/abs of the middle weights to make sure
 # the product is none negative
 
 import os
