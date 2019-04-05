@@ -10,6 +10,9 @@ import torch.optim as optim
 import numpy as np
 import pdb
 
+torch.manual_seed(0)
+np.random.seed(0)
+
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 device = torch.device('cuda')
 

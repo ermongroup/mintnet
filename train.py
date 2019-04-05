@@ -3,6 +3,9 @@ import argparse
 import pickle
 from updated_model import *
 
+torch.manual_seed(0)
+np.random.seed(0)
+
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 device = torch.device('cuda')
 # device = torch.device('cpu')
@@ -27,7 +30,7 @@ torchvision.datasets.MNIST('./files/', train=False, download=True,
                             ])),
 batch_size=batch_size_test, shuffle=True)
 
-net = Net(BasicBlockA, BasicBlockB, [2, 2, 1, 1], [2, 2, 1, 1], image_size=28, input_channel=1).to(device)
+net = Net(BasicBlockA, BasicBlockB, [2, 2, 1, 1], [32, 16, 1, 1], image_size=28, input_channel=1).to(device)
 
 '''
 train_loader = torch.utils.data.DataLoader(
