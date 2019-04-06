@@ -10,12 +10,6 @@ import torch.optim as optim
 import numpy as np
 import pdb
 
-torch.manual_seed(0)
-np.random.seed(0)
-
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
-device = torch.device('cuda')
-
 
 # DO NOT FORGET BATCH_NORM!!!
 class BasicBlockA(nn.Module):
@@ -94,8 +88,7 @@ class BasicBlockA(nn.Module):
         for i in range(self.latent_dim):
             latent_output = F.conv2d(latent1[i], \
                                      (self.weight_list2[i] * self.mask0 + torch.nn.functional.softplus(
-                                         self.center_list2[i]) * self.mask1) * self.mask, bias=self.bias_list2[i],
-                                     padding=1)
+                                         self.center_list2[i]) * self.mask1) * self.mask, bias=self.bias_list2[i], padding=1)
             latent2.append(latent_output)
 
         output = torch.stack(latent2, dim=0)
