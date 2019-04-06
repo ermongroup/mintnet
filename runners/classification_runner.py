@@ -103,7 +103,7 @@ class ClassificationRunner(object):
                 loss.backward()
                 optimizer.step()
 
-                logging.info("epoch: {}, batch: {}, training_loss: {}, training_accuracy: {}".format(epoch, batch_idx, loss.item(), train_correct))
+                #logging.info("epoch: {}, batch: {}, training_loss: {}, training_accuracy: {}".format(epoch, batch_idx, loss.item(), train_correct))
                 tb_logger.add_scalar('training_loss', loss, global_step=step)
                 tb_logger.add_scalar('training_accuracy', train_correct, global_step=step)
 
@@ -124,10 +124,10 @@ class ClassificationRunner(object):
                     acc_correct += correct
                     acc_total += target.shape[0]
         
-                    logging.info("epoch: {}, batch: {}, test_loss: {}, test_accuracy: {}".format(epoch, batch_idx, loss.item(), float(correct)/target.shape[0]))
+                    #logging.info("epoch: {}, batch: {}, test_loss: {}, test_accuracy: {}".format(epoch, batch_idx, loss.item(), float(correct)/target.shape[0]))
                     acc_loss += loss.item()
-                logging.info("test_loss: {}, test_accuracy: {}".format(acc_loss/(batch_idx + 1), acc_correct/acc_total))
+                logging.info("test_loss: {}, test_accuracy: {}".format(acc_loss/(batch_idx + 1.), float(acc_correct)/acc_total))
                 
-                tb_logger.add_scalar('test_loss', acc_loss / (batch_idx + 1), global_step=step)
+                tb_logger.add_scalar('test_loss', acc_loss / (batch_idx + 1.), global_step=step)
                 tb_logger.add_scalar('test_accuracy', float(acc_correct)/acc_total, global_step=step)
 

@@ -10,33 +10,7 @@ import torch.optim as optim
 import numpy as np
 import pdb
 
-torch.manual_seed(0)
-np.random.seed(0)
 
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
-device = torch.device('cuda')
-
-
-class GroupNorm(nn.Module):
-    def __init__(self, num_inputs):
-        super(GroupNorm, self).__init__()
-        self.weight = nn.Parameter(torch.ones(num_inputs)).to(device)
-        self.bias = nn.Parameter(torch.zeros(num_inputs)).to(device)
-        self.initialized = False
-
-    def forward(self, inputs):
-        
-        if self.initialized == False:
-            #pdb.set_trace()
-            self.weight.data.copy_((inputs.reshape((inputs.shape[0], -1))).std(1))
-            self.bias.data.copy_((inputs.reshape((inputs.shape[0], -1))).mean(1))
-            self.initialized = True
-        #pdb.set_trace()
-        self.weight = self.weight.repeat(1,1,1,1).transpose(0,-1)
-        self.bias = self.bias.repeat(1,1,1,1).transpose(0,-1)
-
-        return (inputs - self.bias) * self.weight
-        
 # DO NOT FORGET BATCH_NORM!!!
 class BasicBlockA(nn.Module):
     # Input_dim should be 1(grey scale image) or 3(RGB image), or other dimension if use SpaceToDepth
@@ -114,8 +88,7 @@ class BasicBlockA(nn.Module):
         for i in range(self.latent_dim):
             latent_output = F.conv2d(latent1[i], \
                                      (self.weight_list2[i] * self.mask0 + torch.nn.functional.softplus(
-                                         self.center_list2[i]) * self.mask1) * self.mask, bias=self.bias_list2[i],
-                                     padding=1)
+                                         self.center_list2[i]) * self.mask1) * self.mask, bias=self.bias_list2[i], padding=1)
             latent2.append(latent_output)
 
         output = torch.stack(latent2, dim=0)
@@ -234,8 +207,7 @@ class DepthToSpace(nn.Module):
         t_1 = output.reshape(batch_size, d_height, d_width, self.block_size_sq, s_depth)
         spl = t_1.split(self.block_size, 3)
         stack = [t_t.reshape(batch_size, d_height, s_width, s_depth) for t_t in spl]
-        output = torch.stack(stack, 0).transpose(0, 1).permute(0, 2, 1, 3, 4).reshape(batch_size, s_height, s_width,
-                                                                                      s_depth)
+        output = torch.stack(stack, 0).transpose(0, 1).permute(0, 2, 1, 3, 4).reshape(batch_size, s_height, s_width,s_depth)
         output = output.permute(0, 3, 1, 2)
         return output
 
@@ -275,11 +247,15 @@ class Net(nn.Module):
         latent_size = config.model.latent_size
         # self.increase_dim = SpaceToDepth(2)
         self.layer1 = self._make_layer(layer_size[0], blockA, blockB, latent_size[0], channel)
+        self.bn1 = nn.BatchNorm2d(channel)
         # channel *= 2 * 2
         # channel *= 4 * 4
         self.layer2 = self._make_layer(layer_size[1], blockA, blockB, latent_size[1], channel)
+        self.bn2 = nn.BatchNorm2d(channel)
         self.layer3 = self._make_layer(layer_size[2], blockA, blockB, latent_size[2], channel)  
         self.fc = nn.Linear(self.inplanes * self.image_size * self.image_size, self.num_classes)
+        
+        
 
     def _make_layer(self, block_num, blockA, blockB, latent_dim, input_dim, stride=1):
         layers = []
@@ -291,9 +267,9 @@ class Net(nn.Module):
     def forward(self, x):
         x = self.layer1(x)
         #x = self.increase_dim(x)
-        #x = GroupNorm(x.shape[0])(x)
+        x = self.bn1(x)
         x = self.layer2(x)
-        #x = GroupNorm(x.shape[0])(x)
+        x = self.bn2(x)
         #pdb.set_trace()
         x = self.layer3(x)
         #x = self.layer4(x)
