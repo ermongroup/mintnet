@@ -6,7 +6,9 @@ import torch
 import torch.utils.data
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn.init as init
 import numpy as np
+import math
 
 
 def leaky_relu_derivative(x, slope):
@@ -53,6 +55,15 @@ def batch_norm(output, log_det, beta, gamma):
 # DO NOT FORGET ACTNORM!!!
 class BasicBlockA(nn.Module):
     # Input_dim should be 1(grey scale image) or 3(RGB image), or other dimension if use SpaceToDepth
+
+    def init_conv_weight(self, weight):
+        init.kaiming_uniform_(weight, a=math.sqrt(5))
+
+    def init_conv_bias(self, weight, bias):
+        fan_in, _ = init._calculate_fan_in_and_fan_out(weight)
+        bound = 1 / math.sqrt(fan_in)
+        init.uniform_(bias, -bound, bound)
+
     def __init__(self, config, latent_dim, stride=1, input_dim=3, kernel=3):
         super(BasicBlockA, self).__init__()
         self.input_dim = input_dim
@@ -63,28 +74,32 @@ class BasicBlockA(nn.Module):
         self.bias_list1 = nn.ParameterList()
         self.res = nn.Parameter(torch.ones(1))
 
-        for i in range(latent_dim):
-            weight = torch.zeros(input_dim, input_dim, kernel, kernel, device=config.device)
-            bias = torch.zeros(input_dim, device=config.device)
-            nn.init.xavier_normal_(weight)
-            nn.init.normal_(bias)
-            self.weight_list1.append(nn.Parameter(weight))
-            self.bias_list1.append(nn.Parameter(bias))
-            center = torch.randn(input_dim, input_dim, kernel, kernel, device=config.device)
-            self.center_list1.append(nn.Parameter(center))
+        self.weight1 = nn.Parameter(
+            torch.zeros(input_dim * latent_dim, input_dim, kernel, kernel, device=config.device)
+        )
+        self.bias1 = nn.Parameter(
+            torch.zeros(input_dim, device=config.device)
+        )
+        self.center1 = nn.Parameter(
+            torch.randn(input_dim * latent_dim, input_dim, kernel, kernel, device=config.device)
+        )
+        self.init_conv_weight(self.weight1)
+        self.init_conv_bias(self.weight1, self.bias1)
+        self.init_conv_weight(self.center1)
 
-        self.center_list2 = nn.ParameterList()
-        self.weight_list2 = nn.ParameterList()
-        self.bias_list2 = nn.ParameterList()
-        for i in range(latent_dim):
-            center = torch.randn(input_dim, input_dim, kernel, kernel, device=config.device)
-            weight = torch.zeros_like(center)
-            nn.init.xavier_normal_(weight)
-            bias = torch.zeros(input_dim, device=config.device)
-            nn.init.normal_(bias)
-            self.center_list2.append(nn.Parameter(center))
-            self.weight_list2.append(nn.Parameter(weight))
-            self.bias_list2.append(nn.Parameter(bias))
+        self.weight2 = nn.Parameter(
+            torch.zeros(input_dim * latent_dim, input_dim, kernel, kernel, device=config.device)
+        )
+        self.bias2 = nn.Parameter(
+            torch.zeros(input_dim, device=config.device)
+        )
+        self.center2 = nn.Parameter(
+            torch.randn(input_dim * latent_dim, input_dim, kernel, kernel, device=config.device)
+        )
+
+        self.init_conv_weight(self.weight2)
+        self.init_conv_bias(self.weight2, self.bias2)
+        self.init_conv_weight(self.center2)
 
         # Define masks
         kernel_mid_y, kernel_mid_x = kernel // 2, kernel // 2
@@ -112,32 +127,60 @@ class BasicBlockA(nn.Module):
         self.mask1 = torch.tensor(self.mask1, device=config.device)
         self.mask = torch.tensor(self.mask, device=config.device)
 
+        self.mask0 = self.mask0.repeat(latent_dim, 1, 1, 1)
+        self.mask1 = self.mask1.repeat(latent_dim, 1, 1, 1)
+        self.mask = self.mask.repeat(latent_dim, 1, 1, 1)
+
     def forward(self, x):
         log_det = x[1]
         x = x[0]
         residual = x
-        latent1 = []
-        self.diag = torch.zeros(x.size(), device=x.device)
 
-        for i in range(self.latent_dim):
-            latent_output = F.conv2d(x, (self.weight_list1[i] * self.mask0 + torch.nn.functional.softplus(
-                self.center_list1[i]) * self.mask1) * self.mask, bias=self.bias_list1[i], padding=1)
-            for j in range(self.input_dim):
-                self.diag[:, j, :, :] = self.diag[:, j, :, :] + (torch.nn.functional.softplus(
-                    self.center_list1[i][j, j, self.kernel // 2, self.kernel // 2]) * torch.nn.functional.softplus(
-                    self.center_list2[i][j, j, self.kernel // 2, self.kernel // 2])) * elu_derivative(
-                    latent_output[:, j, :, :], 1)
+        # self.diag = torch.zeros(x.size(), device=x.device)
 
-            latent_output = F.elu(latent_output, alpha=1)
-            latent1.append(latent_output)
+        # latent1 = []
+        #
+        # for i in range(self.latent_dim):
+        #     latent_output = F.conv2d(x, (self.weight_list1[i] * self.mask0 + F.softplus(
+        #         self.center_list1[i]) * self.mask1) * self.mask, bias=self.bias_list1[i], padding=1)
+        #     for j in range(self.input_dim):
+        #         self.diag[:, j, :, :] = self.diag[:, j, :, :] + (F.softplus(
+        #             self.center_list1[i][j, j, self.kernel // 2, self.kernel // 2]) * F.softplus(
+        #             self.center_list2[i][j, j, self.kernel // 2, self.kernel // 2])) * elu_derivative(
+        #             latent_output[:, j, :, :], 1)
+        #
+        #     latent_output = F.elu(latent_output, alpha=1)
+        #     latent1.append(latent_output)
 
-        latent2 = []
-        for i in range(self.latent_dim):
-            latent_output = F.conv2d(latent1[i], \
-                                     (self.weight_list2[i] * self.mask0 + torch.nn.functional.softplus(
-                                         self.center_list2[i]) * self.mask1) * self.mask, bias=self.bias_list2[i],
-                                     padding=1)
-            latent2.append(latent_output)
+        masked_weight = (self.weight1 * self.mask0 + F.softplus(self.center1) * self.mask1) * self.mask
+        latent_output = F.conv2d(x, masked_weight, bias=self.bias1, padding=1, groups=self.latent_dim)
+
+        center1_diag = self.center1.view(self.latent_dim, self.input_dim, self.input_dim, self.kernel, self.kernel)
+        center1_diag = torch.diagonal(center1_diag[..., self.kernel // 2, self.kernel // 2], dim1=-2, dim2=-1)
+        center1_diag = F.softplus(center1_diag)
+
+        center2_diag = self.center2.view(self.latent_dim, self.input_dim, self.input_dim, self.kernel, self.kernel)
+        center2_diag = torch.diagonal(center2_diag[..., self.kernel // 2, self.kernel // 2], dim1=-2, dim2=-1)
+        center2_diag = F.softplus(center2_diag)
+
+        center_diag = center1_diag * center2_diag  # shape: latent_dim x input_dim
+        latent_output_elu_derivative = elu_derivative(latent_output,
+                                                      1)  # shape: B x latent_dim . input_dim x kernel x kernel
+        latent_output_elu_derivative = latent_output_elu_derivative.view(-1, self.latent_dim, self.input_dim,
+                                                                         self.kernel, self.kernel)
+
+        latent1 = F.elu(latent_output, alpha=1)
+        self.diag = (center_diag[..., None, None] * latent_output_elu_derivative).sum(1)
+
+        # latent2 = []
+        # for i in range(self.latent_dim):
+        #     latent_output = F.conv2d(latent1[i], \
+        #                              (self.weight_list2[i] * self.mask0 + F.softplus(
+        #                                  self.center_list2[i]) * self.mask1) * self.mask, bias=self.bias_list2[i],
+        #                              padding=1)
+        #     latent2.append(latent_output)
+        masked_weight2 = (self.weight2 * self.mask0 + F.softplus(self.center2) * self.mask1) * self.mask
+        latent2 = F.conv2d(latent1, masked_weight2, bias=self.bias2, padding=1, groups=self.latent_dim)
 
         output = torch.stack(latent2, dim=0)
         output = output.sum(dim=0) / len(latent2)
@@ -222,11 +265,11 @@ class BasicBlockB(nn.Module):
         self.diag = torch.zeros(x.size(), device=x.device)
 
         for i in range(self.latent_dim):
-            latent_output = F.conv2d(x, (self.weight_list1[i] * self.mask0 + torch.nn.functional.softplus(
+            latent_output = F.conv2d(x, (self.weight_list1[i] * self.mask0 + F.softplus(
                 self.center_list1[i]) * self.mask1) * self.mask, bias=self.bias_list1[i], padding=1)
             for j in range(self.input_dim):
-                self.diag[:, j, :, :] = self.diag[:, j, :, :] + (torch.nn.functional.softplus(
-                    self.center_list1[i][j, j, self.kernel // 2, self.kernel // 2]) * torch.nn.functional.softplus(
+                self.diag[:, j, :, :] = self.diag[:, j, :, :] + (F.softplus(
+                    self.center_list1[i][j, j, self.kernel // 2, self.kernel // 2]) * F.softplus(
                     self.center_list2[i][j, j, self.kernel // 2, self.kernel // 2])) * elu_derivative(
                     latent_output[:, j, :, :], 1)
 
@@ -236,7 +279,7 @@ class BasicBlockB(nn.Module):
         latent2 = []
         for i in range(self.latent_dim):
             latent_output = F.conv2d(latent1[i], \
-                                     (self.weight_list2[i] * self.mask0 + torch.nn.functional.softplus(
+                                     (self.weight_list2[i] * self.mask0 + F.softplus(
                                          self.center_list2[i]) * self.mask1) * self.mask, bias=self.bias_list2[i],
                                      padding=1)
             latent2.append(latent_output)
