@@ -69,9 +69,6 @@ class BasicBlockA(nn.Module):
         self.input_dim = input_dim
         self.latent_dim = latent_dim
         self.kernel = kernel
-        self.weight_list1 = nn.ParameterList()
-        self.center_list1 = nn.ParameterList()
-        self.bias_list1 = nn.ParameterList()
         self.res = nn.Parameter(torch.ones(1))
 
         self.weight1 = nn.Parameter(
