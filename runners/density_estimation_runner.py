@@ -84,7 +84,6 @@ class DensityEstimationRunner(object):
 
         optimizer = self.get_optimizer(net.parameters())
 
-
         tb_path = os.path.join(self.args.run, 'tensorboard', self.args.doc)
         if os.path.exists(tb_path):
             shutil.rmtree(tb_path)
@@ -115,7 +114,8 @@ class DensityEstimationRunner(object):
             for batch_idx, (data, _) in enumerate(dataloader):
                 net.train()
                 # Transform to logit space since pixel values ranging from 0-1
-                data = data.to(self.config.device)
+                data = data.to(self.config.device) * 255. / 256.
+                data += torch.rand_like(data) / 256.
                 data = self.logit_transform(data)
 
                 log_det_logit = F.softplus(-data).sum() + F.softplus(data).sum() + np.prod(
@@ -140,7 +140,8 @@ class DensityEstimationRunner(object):
                         test_iter = iter(test_loader)
                         test_data, _ = next(test_iter)
 
-                    test_data = test_data.to(self.config.device)
+                    test_data = test_data.to(self.config.device) * 255. / 256.
+                    test_data += torch.rand_like(test_data) / 256.
                     test_data = self.logit_transform(test_data)
 
                     test_log_det_logit = F.softplus(-test_data).sum() + F.softplus(test_data).sum() + np.prod(
