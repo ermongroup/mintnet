@@ -2,6 +2,7 @@ training:
   n_epochs: 500
   batch_size: 64
   log_interval: 100
+  snapshot_interval: 10
 
 data:
   dataset: MNIST
@@ -14,15 +15,15 @@ data:
 
 model:
   layer_size:
-    - 2
-    - 2
+    - 1
+    - 1
     - 1
     - 1
   latent_size:
-    - 16
-    - 8
-    - 4
-    - 1
+    - 32
+    - 32
+    - 32
+    - 32
 
 optim:
   optimizer: Adam

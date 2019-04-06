@@ -83,6 +83,8 @@ class DensityEstimationRunner(object):
         net = Net(self.config).to(self.config.device)
 
         optimizer = self.get_optimizer(net.parameters())
+
+
         tb_path = os.path.join(self.args.run, 'tensorboard', self.args.doc)
         if os.path.exists(tb_path):
             shutil.rmtree(tb_path)
@@ -97,9 +99,19 @@ class DensityEstimationRunner(object):
                 loss /= u.size(0)
             return loss
 
+        if self.args.resume_training:
+            states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'),
+                                map_location=self.config.device)
+            net.load_state_dict(states[0])
+            optimizer.load_state_dict(states[1])
+            begin_epoch = states[2]
+            step = states[3]
+        else:
+            step = 0
+            begin_epoch = 0
+
         # Train the model
-        step = 0
-        for epoch in range(self.config.training.n_epochs):
+        for epoch in range(begin_epoch, self.config.training.n_epochs):
             for batch_idx, (data, _) in enumerate(dataloader):
                 net.train()
                 # Transform to logit space since pixel values ranging from 0-1
@@ -117,7 +129,7 @@ class DensityEstimationRunner(object):
                 loss.backward()
                 optimizer.step()
 
-                bpd = (loss.item() * data.shape[0] - log_det_logit) * (1 / (np.log(2) * np.prod(data.shape))) + 8
+                bpd = (loss.item() * data.shape[0] - log_det_logit) / (np.log(2) * np.prod(data.shape)) + 8
 
                 # validation
                 net.eval()
@@ -137,7 +149,7 @@ class DensityEstimationRunner(object):
                     test_output, test_log_det = net(test_data)
                     test_loss = flow_loss(test_output, test_log_det)
                     test_bpd = (test_loss.item() * test_data.shape[0] - test_log_det_logit) * (
-                                1 / (np.log(2) * np.prod(test_data.shape))) + 8
+                            1 / (np.log(2) * np.prod(test_data.shape))) + 8
 
                 tb_logger.add_scalar('training_loss', loss, global_step=step)
                 tb_logger.add_scalar('training_bpd', bpd, global_step=step)
@@ -150,3 +162,14 @@ class DensityEstimationRunner(object):
                                                                                         test_loss.item()))
 
                 step += 1
+
+            if (epoch + 1) % self.config.training.snapshot_interval == 0:
+                states = [
+                    net.state_dict(),
+                    optimizer.state_dict(),
+                    epoch + 1,
+                    step
+                ]
+                torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
+                                                'checkpoint_epoch_{}.pth'.format(epoch + 1)))
+                torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))

@@ -217,11 +217,9 @@ class Net(nn.Module):
         layer_size = config.model.layer_size
         latent_size = config.model.latent_size
         # self.increase_dim = SpaceToDepth(2)
-        self.layer1 = self._make_layer(layer_size[0], latent_size[0], channel)
-        # channel *= 2 * 2
-        # channel *= 4 * 4
-        self.layer2 = self._make_layer(layer_size[1], latent_size[1], channel)
-        self.layer3 = self._make_layer(layer_size[2], latent_size[2], channel)
+        self.layers = nn.ModuleList()
+        for ly, lt in zip(layer_size, latent_size):
+            self.layers.append(self._make_layer(ly, lt, channel))
 
     def _make_layer(self, block_num, latent_dim, input_dim, stride=1):
         layers = []
@@ -232,13 +230,7 @@ class Net(nn.Module):
 
     def forward(self, x):
         log_det = torch.zeros([1], device=x.device)
-        x, log_det = self.layer1([x, log_det])
-        # x, log_det = leaky_relu(x, log_det, 0.01)
-        # x = self.increase_dim(x)
-        x, log_det = self.layer2([x, log_det])
-        # x, log_det = leaky_relu(x, log_det, 0.01)
-        x, log_det = self.layer3([x, log_det])
-        # x, log_det = leaky_relu(x, log_det, 0.01)
-        # x, log_det = self.layer4([x, log_det])
+        for layer in self.layers:
+            x, log_det = layer([x, log_det])
         x = x.view(x.shape[0], -1)
         return x, log_det
