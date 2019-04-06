@@ -5,9 +5,10 @@ training:
 
 data:
   dataset: MNIST
-  lambda_logit: 0.000001
   image_size: 28
   channels: 1
+  num_classes: 10
+  
 #  dataset: CIFAR10
 #  image_size: 32
 #  lambda_logit: 0.05
