@@ -26,6 +26,6 @@ model:
 
 optim:
   optimizer: Adam
-  lr: 0.01
+  lr: 0.001
   beta1: 0.9
   weight_decay: 0.000001
