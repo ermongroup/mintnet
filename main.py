@@ -9,9 +9,6 @@ import os
 import torch
 import numpy as np
 from runners import *
-
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
-
 import pdb
 
 

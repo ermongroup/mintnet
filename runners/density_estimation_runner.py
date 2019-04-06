@@ -1,4 +1,5 @@
 from models.cnn_flow import *
+import shutil
 import tensorboardX
 import logging
 from torchvision.datasets import CIFAR10, MNIST, ImageFolder
@@ -83,6 +84,9 @@ class DensityEstimationRunner(object):
 
         optimizer = self.get_optimizer(net.parameters())
         tb_path = os.path.join(self.args.run, 'tensorboard', self.args.doc)
+        if os.path.exists(tb_path):
+            shutil.rmtree(tb_path)
+
         tb_logger = tensorboardX.SummaryWriter(log_dir=tb_path)
 
         def flow_loss(u, log_jacob, size_average=True):
@@ -96,16 +100,14 @@ class DensityEstimationRunner(object):
         # Train the model
         step = 0
         for epoch in range(self.config.training.n_epochs):
-            logging.info('Now processing epoch {}'.format(epoch))
-
-            net.train()
-            for batch_idx, (data, target) in enumerate(dataloader):
+            for batch_idx, (data, _) in enumerate(dataloader):
+                net.train()
                 # Transform to logit space since pixel values ranging from 0-1
+                data = data.to(self.config.device)
                 data = self.logit_transform(data)
+
                 log_det_logit = F.softplus(-data).sum() + F.softplus(data).sum() + np.prod(
                     data.shape) * np.log(1 - 2 * self.config.data.lambda_logit)
-
-                data, target = data.to(self.config.device), target.to(self.config.device)
 
                 output, log_det = net(data)
                 loss = flow_loss(output, log_det)
@@ -115,34 +117,36 @@ class DensityEstimationRunner(object):
                 loss.backward()
                 optimizer.step()
 
-                
-                bpd = (loss.item() * data.shape[0] - log_det_logit) * (1/(np.log(2)*np.prod(data.shape))) + 8
-                logging.info("epoch: {}, batch: {}, training_loss: {}, training_bpd: {}".format(epoch, batch_idx, loss.item(), bpd))
+                bpd = (loss.item() * data.shape[0] - log_det_logit) * (1 / (np.log(2) * np.prod(data.shape))) + 8
+
+                # validation
+                net.eval()
+                with torch.no_grad():
+                    try:
+                        test_data, _ = next(test_iter)
+                    except StopIteration:
+                        test_iter = iter(test_loader)
+                        test_data, _ = next(test_iter)
+
+                    test_data = test_data.to(self.config.device)
+                    test_data = self.logit_transform(test_data)
+
+                    test_log_det_logit = F.softplus(-test_data).sum() + F.softplus(test_data).sum() + np.prod(
+                        test_data.shape) * np.log(1 - 2 * self.config.data.lambda_logit)
+
+                    test_output, test_log_det = net(test_data)
+                    test_loss = flow_loss(test_output, test_log_det)
+                    test_bpd = (test_loss.item() * test_data.shape[0] - test_log_det_logit) * (
+                                1 / (np.log(2) * np.prod(test_data.shape))) + 8
+
                 tb_logger.add_scalar('training_loss', loss, global_step=step)
                 tb_logger.add_scalar('training_bpd', bpd, global_step=step)
+                tb_logger.add_scalar('test_loss', test_loss, global_step=step)
+                tb_logger.add_scalar('test_bpd', test_bpd, global_step=step)
+
+                if step % self.config.training.log_interval == 0:
+                    logging.info(
+                        "epoch: {}, batch: {}, training_loss: {}, test_loss: {}".format(epoch, batch_idx, loss.item(),
+                                                                                        test_loss.item()))
 
                 step += 1
-
-            # Test
-            net.eval()
-            with torch.no_grad():
-                acc_loss = 0.
-                acc_bpd = 0.
-                for batch_idx, (data, target) in enumerate(test_loader):
-                    data = self.logit_transform(data)
-                    log_det_logit = F.softplus(-data).sum() + F.softplus(data).sum() + np.prod(
-                        data.shape) * np.log(1 - 2 * self.config.data.lambda_logit)
-
-                    data, target = data.to(self.config.device), target.to(self.config.device)
-                    output, log_det = net(data)
-                    # log_det += log_det_logit
-                    loss = flow_loss(output, log_det, False)
-
-                    bpd = (loss.item() * data.shape[0] - log_det_logit) * (1/(np.log(2)*np.prod(data.shape))) + 8
-                    acc_bpd += bpd
-                    logging.info("epoch: {}, batch: {}, test_loss: {}, test_bpd: {}".format(epoch, batch_idx, loss.item(), bpd))
-                    acc_loss += loss.item()
-
-                tb_logger.add_scalar('test_loss', acc_loss / (batch_idx + 1), global_step=step)
-                tb_logger.add_scalar('test_bpd', acc_bpd / (batch_idx + 1), global_step=step)
-
