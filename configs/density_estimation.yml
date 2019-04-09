@@ -5,13 +5,14 @@ training:
   snapshot_interval: 10
 
 data:
-  dataset: MNIST
-  lambda_logit: 0.000001
-  image_size: 28
-  channels: 1
-#  dataset: CIFAR10
-#  image_size: 32
-#  lambda_logit: 0.05
+#  dataset: MNIST
+#  lambda_logit: 0.000001
+#  image_size: 28
+#  channels: 1
+  dataset: CIFAR10
+  image_size: 32
+  lambda_logit: 0.05
+  channels: 3
 
 model:
   layer_size:
@@ -21,8 +22,8 @@ model:
     - 1
   latent_size:
     - 32
-    - 32
-    - 32
+    - 64
+    - 64
     - 32
 
 optim:

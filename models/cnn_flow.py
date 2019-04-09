@@ -12,6 +12,7 @@ import math
 
 import pdb
 
+
 def leaky_relu_derivative(x, slope):
     slope1 = torch.ones_like(x).detach()
     slope2 = torch.ones_like(x).detach() * slope
@@ -37,6 +38,7 @@ class Leaky_Relu(nn.Module):
     from Glow: Generative Flow with Invertible 1x1 Convolutions
     (https://arxiv.org/abs/1807.03039).
     """
+
     def __init__(self, config, slope):
         super(Leaky_Relu, self).__init__()
         self.slope = slope
@@ -77,6 +79,7 @@ class ActNorm(nn.Module):
     from Glow: Generative Flow with Invertible 1x1 Convolutions
     (https://arxiv.org/abs/1807.03039).
     """
+
     def __init__(self, config, num_inputs):
         super(ActNorm, self).__init__()
         self.weight = nn.Parameter(torch.ones(num_inputs)).to(config.device)
@@ -85,10 +88,11 @@ class ActNorm(nn.Module):
 
     def forward(self, inputs, log_det):
         if self.initialized == False:
-            self.weight.data.copy_(1/(inputs.std(0) + 1e-12))
+            self.weight.data.copy_(1 / (inputs.std(0) + 1e-12))
             self.bias.data.copy_(inputs.mean(0))
             self.initialized = True
-        return (inputs - self.bias) * self.weight, log_det + inputs.size(0) * torch.sum(torch.log(torch.abs(self.weight)))
+        return (inputs - self.bias) * self.weight, log_det + inputs.size(0) * torch.sum(
+            torch.log(torch.abs(self.weight)))
 
 
 class NewNorm(nn.Module):
@@ -100,16 +104,16 @@ class NewNorm(nn.Module):
         self.mask = torch.zeros((self.total_length, self.total_length)).to(config.device)
 
         # x_n is a special case
-        for i in range(self.mask.shape[0]-1):
-            self.mask[i, i+1:] += -1/(self.total_length - i - 1)
-        self.mask[-1,:] += -1/self.total_length
+        for i in range(self.mask.shape[0] - 1):
+            self.mask[i, i + 1:] += -1 / (self.total_length - i - 1)
+        self.mask[-1, :] += -1 / self.total_length
         self.mask = self.mask.reshape((self.total_length * num_inputs[0], *num_inputs[1:]))
 
         self.initialized = False
 
     def forward(self, inputs, log_det):
         if self.initialized == False:
-            self.mask = self.mask.repeat(inputs.shape[0],1,1,1)#should be same among each input
+            self.mask = self.mask.repeat(inputs.shape[0], 1, 1, 1)  # should be same among each input
             inputs = inputs + (inputs * self.mask).sum(dim=1, keepdim=True)
             self.weight.data.copy_(1 / (inputs.std(0) + 1e-12))
             log_det += inputs.shape[0] * (np.log(self.total_length - 1) - np.log(self.total_length))
@@ -117,7 +121,7 @@ class NewNorm(nn.Module):
             return (inputs - self.bias) * self.weight, log_det + inputs.size(0) * torch.sum(
                 torch.log(torch.abs(self.weight)))
 
-        #pdb.set_trace()
+        # pdb.set_trace()
         inputs = inputs + (inputs * self.mask).sum(dim=1, keepdim=True)
         log_det += inputs.shape[0] * (np.log(self.total_length - 1) - np.log(self.total_length))
         return (inputs - self.bias) * self.weight, log_det + inputs.size(0) * torch.sum(
@@ -130,7 +134,7 @@ class BasicBlock(nn.Module):
 
     def init_conv_weight(self, weight):
         init.kaiming_uniform_(weight, a=math.sqrt(5))
-        #init.xavier_normal_(weight)
+        # init.xavier_normal_(weight)
 
     def init_conv_bias(self, weight, bias):
         fan_in, _ = init._calculate_fan_in_and_fan_out(weight)
@@ -185,7 +189,6 @@ class BasicBlock(nn.Module):
         # Mask out the element above diagonal
         self.mask = np.ones((input_dim, input_dim, kernel, kernel), dtype=np.float32)
 
-
         # For RGB ONLY:i=0:Red channel;i=1:Green channel;i=2:Blue channel
         if type == 'A':
             for i in range(input_dim):
@@ -221,7 +224,7 @@ class BasicBlock(nn.Module):
         x = x[0]
         residual = x
 
-        #masked_weight1 = (self.weight1 * self.mask0 + F.softplus(self.center1) * self.mask1) * self.mask
+        # masked_weight1 = (self.weight1 * self.mask0 + F.softplus(self.center1) * self.mask1) * self.mask
         masked_weight1 = (self.weight1 * self.mask0 + torch.abs(self.center1) * self.mask1) * self.mask
         latent_output = F.conv2d(x.repeat(1, self.latent_dim, 1, 1), masked_weight1, bias=self.bias1,
                                  padding=self.padding, stride=self.stride,
@@ -231,12 +234,12 @@ class BasicBlock(nn.Module):
 
         center1_diag = torch.diagonal(center1_diag[..., self.kernel // 2, self.kernel // 2], dim1=-2, dim2=-1)
 
-        #center1_diag = F.softplus(center1_diag)
+        # center1_diag = F.softplus(center1_diag)
         center1_diag = torch.abs(center1_diag)
 
         center2_diag = self.center2.view(self.latent_dim, self.input_dim, self.input_dim, self.kernel, self.kernel)
         center2_diag = torch.diagonal(center2_diag[..., self.kernel // 2, self.kernel // 2], dim1=-2, dim2=-1)
-        #center2_diag = F.softplus(center2_diag)
+        # center2_diag = F.softplus(center2_diag)
         center2_diag = torch.abs(center2_diag)
 
         center_diag = center1_diag * center2_diag  # shape: latent_dim x input_dim
@@ -256,9 +259,9 @@ class BasicBlock(nn.Module):
 
         self.diag = (center_diag[..., None, None] * latent_output_elu_derivative).sum(1)
         latent1 = F.elu(latent_output, alpha=1)
-        #latent1 = F.leaky_relu(latent_output, negative_slope=0.01)
+        # latent1 = F.leaky_relu(latent_output, negative_slope=0.01)
 
-        #masked_weight2 = (self.weight2 * self.mask0 + F.softplus(self.center2) * self.mask1) * self.mask
+        # masked_weight2 = (self.weight2 * self.mask0 + F.softplus(self.center2) * self.mask1) * self.mask
         masked_weight2 = (self.weight2 * self.mask0 + torch.abs(self.center2) * self.mask1) * self.mask
 
         '''
@@ -269,12 +272,17 @@ class BasicBlock(nn.Module):
             array.append(l)
         latent2 = torch.stack(array, dim=1)
         output = latent2.sum(dim=1) / self.latent_dim#latent2.shape[1]
+        
+        # masked_weight2 = torch.cat(torch.split(masked_weight2, self.input_dim, dim=0), dim=1)
+        # output = F.conv2d(latent1, masked_weight2, bias=self.bias2.reshape((self.input_dim,-1)).sum(dim=-1), padding=self.padding, stride=self.stride)
+        # output /= self.latent_dim
+
         '''
+        output = F.conv2d(latent1, masked_weight2, self.bias2, padding=self.padding, stride=self.stride,
+                          groups=self.latent_dim)
+        output = output.view(output.shape[0], self.latent_dim, self.input_dim, output.shape[2], output.shape[3])
+        output = output.sum(dim=1) / self.latent_dim
 
-
-        masked_weight2 = torch.cat(torch.split(masked_weight2, self.input_dim, dim=0), dim=1)
-        output = F.conv2d(latent1, masked_weight2, bias=self.bias2.reshape((self.input_dim,-1)).sum(dim=-1), padding=self.padding, stride=self.stride)
-        output /= self.latent_dim
         mask_res = (self.res > 0).float().to(x.device)
 
         # MIGHT NEED TO ADD EPSILON TO self.res * mask_res
@@ -331,7 +339,6 @@ class DepthToSpace(nn.Module):
         return output, x[1]
 
 
-
 class Net(nn.Module):
     # layers latent_dim at each layer
     def __init__(self, config):
@@ -349,13 +356,13 @@ class Net(nn.Module):
             self.layers.append(self._make_layer(ly, lt, channel))
             if layer_num == 2:
                 self.layers.append(self.space2depth)
-                channel *= 4*4
+                channel *= 4 * 4
 
     def _make_layer(self, block_num, latent_dim, input_dim, stride=1):
         layers = []
         for i in range(0, block_num):
             layers.append(BasicBlock(self.config, latent_dim, type='A', input_dim=input_dim))
-            #layers.append(Leaky_Relu(self.config, 0.5))
+            # layers.append(Leaky_Relu(self.config, 0.5))
             layers.append(BasicBlock(self.config, latent_dim, type='B', input_dim=input_dim))
         return nn.Sequential(*layers)
 
@@ -363,8 +370,8 @@ class Net(nn.Module):
         log_det = torch.zeros([1], device=x.device)
         for layer_num, layer in enumerate(self.layers):
             x, log_det = layer([x, log_det])
-        x, log_det  = self.depth2space([x, log_det])
+        x, log_det = self.depth2space([x, log_det])
 
-        #x = x.view(x.shape[0], -1)
+        # x = x.view(x.shape[0], -1)
         x = x.reshape(x.shape[0], -1)
         return x, log_det
