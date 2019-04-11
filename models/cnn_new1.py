@@ -149,7 +149,7 @@ class BasicBlock(nn.Module):
         self.stride = stride
         self.padding = padding
         self.res = nn.Parameter(torch.ones(1))
-
+        self.config = config
 
         self.weight1 = nn.Parameter(
             torch.zeros(input_dim * latent_dim, input_dim, kernel, kernel, device=config.device)
@@ -165,18 +165,20 @@ class BasicBlock(nn.Module):
         self.init_conv_weight(self.center1)
 
         self.weight2 = nn.Parameter(
-            torch.zeros(input_dim * latent_dim, input_dim, kernel, kernel, device=config.device)
+            torch.zeros(input_dim * latent_dim, input_dim * latent_dim, kernel, kernel, device=config.device)
         )
         self.bias2 = nn.Parameter(
             torch.zeros(input_dim * latent_dim, device=config.device)
         )
         self.center2 = nn.Parameter(
-            torch.randn(input_dim * latent_dim, input_dim, kernel, kernel, device=config.device)
+            torch.randn(input_dim * latent_dim, input_dim * latent_dim, kernel, kernel, device=config.device)
         )
 
         self.init_conv_weight(self.weight2)
         self.init_conv_bias(self.weight2, self.bias2)
         self.init_conv_weight(self.center2)
+
+
 
         # Define masks
         kernel_mid_y, kernel_mid_x = kernel // 2, kernel // 2
@@ -225,71 +227,116 @@ class BasicBlock(nn.Module):
         x = x[0]
         residual = x
 
-        # masked_weight1 = (self.weight1 * self.mask0 + F.softplus(self.center1) * self.mask1) * self.mask
         masked_weight1 = (self.weight1 * self.mask0 + torch.abs(self.center1) * self.mask1) * self.mask
         latent_output = F.conv2d(x.repeat(1, self.latent_dim, 1, 1), masked_weight1, bias=self.bias1,
                                  padding=self.padding, stride=self.stride,
                                  groups=self.latent_dim)
 
+
+        '''
         center1_diag = self.center1.view(self.latent_dim, self.input_dim, self.input_dim, self.kernel, self.kernel)
-
         center1_diag = torch.diagonal(center1_diag[..., self.kernel // 2, self.kernel // 2], dim1=-2, dim2=-1)
-
-        # center1_diag = F.softplus(center1_diag)
         center1_diag = torch.abs(center1_diag)
 
-        center2_diag = self.center2.view(self.latent_dim, self.input_dim, self.input_dim, self.kernel, self.kernel)
-        center2_diag = torch.diagonal(center2_diag[..., self.kernel // 2, self.kernel // 2], dim1=-2, dim2=-1)
-        # center2_diag = F.softplus(center2_diag)
+        #center2_diag = self.center2.view(self.latent_dim * self.latent_dim , self.input_dim, self.input_dim, self.kernel, self.kernel)
+        center2_diag = torch.diagonal(self.center2[..., self.kernel // 2, self.kernel // 2], dim1=-2, dim2=-1)
         center2_diag = torch.abs(center2_diag)
+        #center2_diag = center2_diag.view(self.latent_dim, self.latent_dim, -1)
 
-        center_diag = center1_diag * center2_diag  # shape: latent_dim x input_dim
+        center_diag = center2_diag.view(self.latent_dim, self.latent_dim, -1).sum(dim=0) * center1_diag
         '''
+        #pdb.set_trace()
+        #for i in range(center1_diag.shape[-1]):
+        #    center_diag[:,i] = center1_diag[:,i] * center2_diag[:,:,i].sum(dim=0).reshape(-1)
+
+        #center_diag = center1_diag * center2_diag  # shape: latent_dim x input_dim
+        #center_diag = center1_diag.repeat(self.latent_dim, 1) * center2_diag
+        #pdb.set_trace()
+        #center_diag = center_diag.reshape(self.latent_dim * self.input_dim, self.latent_dim, 1).sum(dim=0)
+
+        center_diag = torch.zeros(latent_output.size(), device=self.config.device)
+
+        for i in range(self.latent_dim):
+            for j in range(self.input_dim):
+                center_diag[:, i * self.input_dim + j, :, :] += torch.abs(
+                        self.center1[i * self.input_dim: (i+1) * self.input_dim][j, j, self.kernel // 2, self.kernel // 2]) \
+                        * torch.sum(torch.abs(self.center2[:, i * self.input_dim: (i+1) \
+                        * self.input_dim,...][j, j, self.kernel // 2, self.kernel // 2]))
+
+        '''
+        pdb.set_trace()
+        center1_diag = self.center1.view((-1, self.latent_dim * self.input_dim, self.center1.shape[1], self.center1.shape[2], self.center1.shape[3]))
+        center1_diag = torch.diagonal(center1_diag[..., self.kernel // 2, self.kernel // 2], dim1=-2, dim2=-1)
+        center1_diag = torch.abs(center1_diag)
+
+        pdb.set_trace()
+        center2_diag = self.center2.view((-1, self.latent_dim * self.input_dim, self.input_dim, self.center2.shape[2], self.center2.shape[3]))
+        center2_diag = torch.diagonal(center2_diag[..., self.kernel // 2, self.kernel // 2], dim1=-2, dim2=-1)
+        center2_diag = center2_diag.view((self.latent_dim, self.latent_dim, -1))
+        center2_diag = center2_diag.sum(dim=0)
+        center2_diag = torch.abs(center2_diag)
+        pdb.set_trace()
+        temp_center = center1_diag * center2_diag
+        '''
+
+
+
+
         latent_output_elu_derivative = elu_derivative(latent_output,
                                                       1)  # shape: B x latent_dim . input_dim x kernel x kernel
-        latent_output_elu_derivative = latent_output_elu_derivative.view(-1, self.latent_dim, self.input_dim,
-                                                                         latent_output.shape[-2],
-                                                                        latent_output.shape[-1])
+        #latent_output_elu_derivative = latent_output_elu_derivative.view(-1, self.latent_dim, self.input_dim,
+        #                                                                latent_output.shape[-2],
+        #                                                                latent_output.shape[-1])
+
+
+        #pdb.set_trace()
+        self.diag = (center_diag * latent_output_elu_derivative).reshape(-1, self.latent_dim, self.input_dim,
+                                                                        latent_output.shape[-2],
+                                                                        latent_output.shape[-1])#.sum(1)
+        #pdb.set_trace()
+        latent1 = F.elu(latent_output, alpha=1)
+
+        #pdb.set_trace()
+        masked_weight2 = (self.weight2
+                          * self.mask0.repeat(1, self.latent_dim, 1, 1) +\
+                          torch.abs(self.center2) \
+                          * self.mask1.repeat(1, self.latent_dim, 1, 1)) \
+                         * self.mask.repeat(1, self.latent_dim, 1, 1)
+
+        latent_output2 = F.conv2d(latent1, masked_weight2, self.bias2, padding=self.padding, stride=self.stride)#,
+                          #groups=self.latent_dim)
+
+
+        #added
+        latent_output2_elu_derivative = elu_derivative(latent_output2,
+                                                1)  # shape: B x latent_dim . input_dim x kernel x kernel
+        latent_output2_elu_derivative = latent_output2_elu_derivative.view(-1, self.latent_dim, self.input_dim,
+                                                                           latent_output.shape[-2],
+                                                                           latent_output.shape[-1])
+
+        self.diag = (self.diag * latent_output2_elu_derivative).sum(1)
+        output = F.elu(latent_output2, alpha=1)
+
+        #added
 
         '''
-        latent_output_relu_derivative = leaky_relu_derivative(latent_output,
-                                                      0.1)  # shape: B x latent_dim . input_dim x kernel x kernel
-        latent_output_relu_derivative = latent_output_relu_derivative.view(-1, self.latent_dim, self.input_dim,
-                                                                         latent_output.shape[-2],
-                                                                        latent_output.shape[-1])
-
-
-        self.diag = (center_diag[..., None, None] * latent_output_relu_derivative).sum(1)
-        #latent1 = F.elu(latent_output, alpha=1)
-        latent1 = F.leaky_relu(latent_output, negative_slope=0.1)
-
-        # masked_weight2 = (self.weight2 * self.mask0 + F.softplus(self.center2) * self.mask1) * self.mask
-        masked_weight2 = (self.weight2 * self.mask0 + torch.abs(self.center2) * self.mask1) * self.mask
-
-        '''
-        array = []
-        for i in range(self.latent_dim):
-            l = F.conv2d(latent1[:, i*self.input_dim:(i+1)*self.input_dim, :,:], masked_weight2[i*self.input_dim:(i+1)*self.input_dim], \
-                         bias=self.bias2[i*self.input_dim:(i+1)*self.input_dim], padding=self.padding, stride=self.stride)
-            array.append(l)
-        latent2 = torch.stack(array, dim=1)
-        output = latent2.sum(dim=1) / self.latent_dim#latent2.shape[1]
+        latent2 = F.elu(latent_output2 , alpha=1)
         
-        # masked_weight2 = torch.cat(torch.split(masked_weight2, self.input_dim, dim=0), dim=1)
-        # output = F.conv2d(latent1, masked_weight2, bias=self.bias2.reshape((self.input_dim,-1)).sum(dim=-1), padding=self.padding, stride=self.stride)
-        # output /= self.latent_dim
-
+        masked_weight3 = (self.weight3 * self.mask0 + torch.abs(self.center3) * self.mask1) * self.mask
+        output= F.conv2d(latent2, masked_weight3, self.bias3, padding=self.padding, stride=self.stride,
+                                  groups=self.latent_dim)
         '''
-        output = F.conv2d(latent1, masked_weight2, self.bias2, padding=self.padding, stride=self.stride,
-                          groups=self.latent_dim)
-        output = output.view(output.shape[0], self.latent_dim, self.input_dim, output.shape[2], output.shape[3])
-        output = output.sum(dim=1) / self.latent_dim
+        #added
 
+
+        output = output.view(output.shape[0], self.latent_dim, self.input_dim, output.shape[2], output.shape[3])
+
+        output = output.sum(dim=1) / (self.latent_dim * self.latent_dim)
         mask_res = (self.res > 0).float().to(x.device)
 
         # MIGHT NEED TO ADD EPSILON TO self.res * mask_res
         output = output + self.res * mask_res * residual
-        self.diag = self.diag / self.latent_dim + self.res * mask_res
+        self.diag = self.diag / (self.latent_dim * self.latent_dim) + self.res * mask_res
 
         log_det += torch.sum(torch.log(self.diag))
 
@@ -364,7 +411,7 @@ class Net(nn.Module):
                 self.layers.append(SpaceToDepth(7))
                 channel *= 7 * 7
 
-            
+
 
             if layer_num % 2 == 0:
                 self.layers.append(DepthToSpace(4))
@@ -379,10 +426,6 @@ class Net(nn.Module):
                 channel *= 4 * 4
 
             self.layers.append(self._make_layer(ly, lt, channel))
-
-
-
-
 
     def _make_layer(self, block_num, latent_dim, input_dim, stride=1):
         layers = []

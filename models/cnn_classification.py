@@ -8,9 +8,149 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
+import torch.nn.init as init
+import math
+
 import pdb
 
+# DO NOT FORGET ACTNORM!!!
+class BasicBlock(nn.Module):
+    # Input_dim should be 1(grey scale image) or 3(RGB image), or other dimension if use SpaceToDepth
 
+    def init_conv_weight(self, weight):
+        init.kaiming_uniform_(weight, a=math.sqrt(5))
+        # init.xavier_normal_(weight)
+
+    def init_conv_bias(self, weight, bias):
+        fan_in, _ = init._calculate_fan_in_and_fan_out(weight)
+        bound = 1 / math.sqrt(fan_in)
+        init.uniform_(bias, -bound, bound)
+
+    def __init__(self, config, latent_dim, type, input_dim=3, kernel=3, padding=1, stride=1):
+        super().__init__()
+        self.input_dim = input_dim
+        self.latent_dim = latent_dim
+        self.kernel = kernel
+        self.stride = stride
+        self.padding = padding
+        self.res = nn.Parameter(torch.ones(1))
+
+        self.weight1 = nn.Parameter(
+            torch.zeros(input_dim * latent_dim, input_dim, kernel, kernel, device=config.device)
+        )
+        self.bias1 = nn.Parameter(
+            torch.zeros(input_dim * latent_dim, device=config.device)
+        )
+        self.center1 = nn.Parameter(
+            torch.randn(input_dim * latent_dim, input_dim, kernel, kernel, device=config.device)
+        )
+        self.init_conv_weight(self.weight1)
+        self.init_conv_bias(self.weight1, self.bias1)
+        self.init_conv_weight(self.center1)
+
+        self.weight2 = nn.Parameter(
+            torch.zeros(input_dim * latent_dim, input_dim, kernel, kernel, device=config.device)
+        )
+        self.bias2 = nn.Parameter(
+            torch.zeros(input_dim * latent_dim, device=config.device)
+        )
+        self.center2 = nn.Parameter(
+            torch.randn(input_dim * latent_dim, input_dim, kernel, kernel, device=config.device)
+        )
+
+        self.init_conv_weight(self.weight2)
+        self.init_conv_bias(self.weight2, self.bias2)
+        self.init_conv_weight(self.center2)
+
+        # Define masks
+        kernel_mid_y, kernel_mid_x = kernel // 2, kernel // 2
+        # zero in the middle(technically not middle, depending on channels), one elsewhere
+        # used to mask out the diagonal element
+        self.mask0 = np.ones((input_dim, input_dim, kernel, kernel), dtype=np.float32)
+
+        # 1 in the middle, zero elsewhere, used for center mask to zero out the non-diagonal element
+        self.mask1 = np.zeros((input_dim, input_dim, kernel, kernel), dtype=np.float32)
+
+        # Mask out the element above diagonal
+        self.mask = np.ones((input_dim, input_dim, kernel, kernel), dtype=np.float32)
+
+        # For RGB ONLY:i=0:Red channel;i=1:Green channel;i=2:Blue channel
+        if type == 'A':
+            for i in range(input_dim):
+                self.mask0[i, i, kernel_mid_y, kernel_mid_x] = 0.0
+                self.mask1[i, i, kernel_mid_y, kernel_mid_x] = 1.0
+                self.mask[i, :, kernel_mid_y + 1:, :] = 0.0
+                # For the current and previous color channels, including the current color
+                self.mask[i, :i + 1, kernel_mid_y, kernel_mid_x + 1:] = 0.0
+                # For the latter color channels, not including the current color
+                self.mask[i, i + 1:, kernel_mid_y, kernel_mid_x:] = 0.0
+        elif type == 'B':
+            for i in range(input_dim):
+                self.mask0[i, i, kernel_mid_y, kernel_mid_x] = 0.0
+                self.mask1[i, i, kernel_mid_y, kernel_mid_x] = 1.0
+                self.mask[i, :, :kernel_mid_y, :] = 0.0
+                # For the current and latter color channels, including the current color
+                self.mask[i, i:, kernel_mid_y, :kernel_mid_x] = 0.0
+                # For the previous color channels, not including the current color
+                self.mask[i, :i, kernel_mid_y, :kernel_mid_x + 1] = 0.0
+        else:
+            raise TypeError('type should be either A or B')
+
+        self.mask0 = torch.tensor(self.mask0, device=config.device)
+        self.mask1 = torch.tensor(self.mask1, device=config.device)
+        self.mask = torch.tensor(self.mask, device=config.device)
+
+        self.mask0 = self.mask0.repeat(latent_dim, 1, 1, 1)
+        self.mask1 = self.mask1.repeat(latent_dim, 1, 1, 1)
+        self.mask = self.mask.repeat(latent_dim, 1, 1, 1)
+
+    def forward(self, x):
+        residual = x
+
+        # masked_weight1 = (self.weight1 * self.mask0 + F.softplus(self.center1) * self.mask1) * self.mask
+        masked_weight1 = (self.weight1 * self.mask0 + torch.abs(self.center1) * self.mask1) * self.mask
+        latent_output = F.conv2d(x.repeat(1, self.latent_dim, 1, 1), masked_weight1, bias=self.bias1,
+                                 padding=self.padding, stride=self.stride,
+                                 groups=self.latent_dim)
+
+        center1_diag = self.center1.view(self.latent_dim, self.input_dim, self.input_dim, self.kernel, self.kernel)
+
+        center1_diag = torch.diagonal(center1_diag[..., self.kernel // 2, self.kernel // 2], dim1=-2, dim2=-1)
+
+        # center1_diag = F.softplus(center1_diag)
+        center1_diag = torch.abs(center1_diag)
+
+        center2_diag = self.center2.view(self.latent_dim, self.input_dim, self.input_dim, self.kernel, self.kernel)
+        center2_diag = torch.diagonal(center2_diag[..., self.kernel // 2, self.kernel // 2], dim1=-2, dim2=-1)
+        # center2_diag = F.softplus(center2_diag)
+        center2_diag = torch.abs(center2_diag)
+
+        center_diag = center1_diag * center2_diag  # shape: latent_dim x input_dim
+
+
+        latent1 = F.elu(latent_output, alpha=1)
+        # latent1 = F.leaky_relu(latent_output, negative_slope=0.01)
+
+        # masked_weight2 = (self.weight2 * self.mask0 + F.softplus(self.center2) * self.mask1) * self.mask
+        masked_weight2 = (self.weight2 * self.mask0 + torch.abs(self.center2) * self.mask1) * self.mask
+
+
+        output = F.conv2d(latent1, masked_weight2, self.bias2, padding=self.padding, stride=self.stride,
+                          groups=self.latent_dim)
+        output = output.view(output.shape[0], self.latent_dim, self.input_dim, output.shape[2], output.shape[3])
+        output = output.sum(dim=1) / self.latent_dim
+
+        mask_res = (self.res > 0).float().to(x.device)
+
+        # MIGHT NEED TO ADD EPSILON TO self.res * mask_res
+        output = output + self.res * mask_res * residual
+
+
+        # need to act_norm
+
+        return output
+
+'''
 # DO NOT FORGET BATCH_NORM!!!
 class BasicBlockA(nn.Module):
     # Input_dim should be 1(grey scale image) or 3(RGB image), or other dimension if use SpaceToDepth
@@ -189,7 +329,7 @@ class BasicBlockB(nn.Module):
 
         return output
 
-
+'''
 
 
 class DepthToSpace(nn.Module):
@@ -232,6 +372,49 @@ class SpaceToDepth(nn.Module):
         return output
 
 
+
+class Net(nn.Module):
+    # layers latent_dim at each layer
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.inplanes = channel = config.data.channels
+
+        layer_size = config.model.layer_size
+        latent_size = config.model.latent_size
+        self.space2depth = SpaceToDepth(4)
+        self.depth2space = DepthToSpace(4)
+        self.fc = nn.Linear(self.inplanes * config.data.image_size * config.data.image_size, config.data.num_classes)
+
+        self.layers = nn.ModuleList()
+        for layer_num, (ly, lt) in enumerate(zip(layer_size, latent_size)):
+            self.layers.append(self._make_layer(ly, lt, channel))
+
+            if layer_num == 1:
+                self.layers.append(self.space2depth)
+                channel *= 4 * 4
+
+
+    def _make_layer(self, block_num, latent_dim, input_dim, stride=1):
+        layers = []
+        for i in range(0, block_num):
+            layers.append(BasicBlock(self.config, latent_dim, type='A', input_dim=input_dim))
+            layers.append(BasicBlock(self.config, latent_dim, type='B', input_dim=input_dim))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        log_det = torch.zeros([1], device=x.device)
+        for layer_num, layer in enumerate(self.layers):
+            x = layer(x)
+        x = self.depth2space(x)
+
+        #x = x.view(x.shape[0], -1)
+        x = x.reshape(x.shape[0], -1)
+        x = self.fc(x)
+        return F.log_softmax(x, dim=1)
+
+
+'''
 class Net(nn.Module):
     # layers latent_dim at each layer
     def __init__(self, config):
@@ -277,4 +460,4 @@ class Net(nn.Module):
         x = x.view(x.shape[0], -1)
         x = self.fc(x)
         return F.log_softmax(x, dim=1)
-
+'''

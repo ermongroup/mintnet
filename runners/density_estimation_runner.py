@@ -1,4 +1,5 @@
-from models.cnn_flow import *
+#from models.cnn_flow import *
+from models.cnn_new1 import *
 import shutil
 import tensorboardX
 import logging

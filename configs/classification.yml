@@ -4,14 +4,16 @@ training:
   log_interval: 10
 
 data:
-  dataset: MNIST
-  image_size: 28
-  channels: 1
-  num_classes: 10
+#  dataset: MNIST
+#  image_size: 28
+#  channels: 1
+#  num_classes: 10
   
-#  dataset: CIFAR10
-#  image_size: 32
-#  lambda_logit: 0.05
+  dataset: CIFAR10
+  image_size: 32
+  lambda_logit: 0.05
+  channels: 3
+  num_classes: 10
 
 model:
   layer_size:
@@ -20,10 +22,10 @@ model:
     - 1
     - 1
   latent_size:
-    - 16
-    - 8
-    - 4
-    - 1
+    - 218
+    - 128
+    - 128
+    - 64
 
 optim:
   optimizer: Adam
