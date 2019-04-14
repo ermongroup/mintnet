@@ -1,5 +1,5 @@
-#from models.cnn_flow import *
-from models.cnn_new1 import *
+from models.cnn_flow import *
+# from models.cnn_new1 import *
 import shutil
 import tensorboardX
 import logging
@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader, Subset
 import torch.nn.functional as F
 import numpy as np
 import torch.optim as optim
+import os
 
 
 class DensityEstimationRunner(object):

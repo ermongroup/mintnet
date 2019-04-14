@@ -23,13 +23,11 @@ model:
     - 1
 
   latent_size:
-    - 4
-    - 4
-    - 4
-    - 4
-    - 4
-
-
+    - 16
+    - 16
+    - 16
+    - 16
+    - 16
 
 optim:
   optimizer: Adam
