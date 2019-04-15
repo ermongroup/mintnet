@@ -202,14 +202,14 @@ class BasicBlock(nn.Module):
         self.non_linearity = F.elu
         self.non_linearity_derivative = elu_derivative
 
-        self.t = nn.Parameter(torch.tensor(1.))
+        self.t = nn.Parameter(torch.ones(input_dim))
 
     def forward(self, x):
         log_det = x[1]
         x = x[0]
 
-        masked_weight1 = (self.weight1 * (1. - self.center_mask1) + torch.abs(
-            self.weight1) * self.center_mask1) * self.mask1
+        masked_weight1 = self.weight1 * self.mask1
+        masked_weight3 = self.weight3 * self.mask3
 
         # shape: B x latent_output . input_dim x img_size x img_size
         latent_output = F.conv2d(x, masked_weight1, bias=self.bias1, padding=self.padding, stride=self.stride)
@@ -224,8 +224,25 @@ class BasicBlock(nn.Module):
 
         latent_output = self.non_linearity(latent_output)
 
-        masked_weight2 = (self.weight2 * (1. - self.center_mask2) + torch.abs(
-            self.weight2) * self.center_mask2) * self.mask2
+        center1 = masked_weight1 * self.center_mask1  # shape: latent_dim.input_dim x input_dim x kernel x kernel
+        center3 = masked_weight3 * self.center_mask3  # shape: input_dim x latent_dim.input_dim x kernel x kernel
+
+        # shape: 1 x latent_dim x input_dim x input_dim x kernel x kernel
+        center1 = center1.view(self.latent_dim, self.input_dim, self.input_dim,
+                               center1.shape[-2], center1.shape[-1]).unsqueeze(0)
+        # shape: latent_dim x 1 x input_dim x input_dim x kernel x kernel
+        center3 = center3.view(self.input_dim, self.latent_dim, self.input_dim, center3.shape[-2],
+                               center3.shape[-1]).permute(1, 0, 2, 3, 4).unsqueeze(1)
+
+        sign_prods = torch.sign(center1) * torch.sign(center3)
+        center2 = self.weight2 * self.center_mask2  # shape: latent_dim.input_dim x latent_dim.input_dim x kernel x kernel
+        center2 = center2.view(self.latent_dim, self.input_dim, self.latent_dim, self.input_dim,
+                               center2.shape[-2], center2.shape[-1])
+        center2 = center2.permute(0, 2, 1, 3, 4, 5)
+        center2 = sign_prods * torch.sign(center2) * center2
+        center2 = center2.permute(0, 2, 1, 3, 4, 5).view_as(self.weight2)
+        masked_weight2 = (center2 + self.weight2 * (1. - self.center_mask2)) * self.mask2
+
         latent_output = F.conv2d(latent_output, masked_weight2, bias=self.bias2, padding=self.padding,
                                  stride=self.stride)
 
@@ -242,8 +259,6 @@ class BasicBlock(nn.Module):
         latent_output_derivative = self.non_linearity_derivative(latent_output)
         latent_output = self.non_linearity(latent_output)
 
-        masked_weight3 = (self.weight3 * (1. - self.center_mask3) + torch.abs(
-            self.weight3) * self.center_mask3) * self.mask3
         latent_output = F.conv2d(latent_output, masked_weight3, bias=self.bias3, padding=self.padding,
                                  stride=self.stride)
 
@@ -255,7 +270,7 @@ class BasicBlock(nn.Module):
 
         diag = torch.sum(diag2 * diag3, dim=1)  # shape: B x input_dim x img_shape x img_shape
 
-        t = torch.max(torch.abs(self.t), torch.tensor(1e-8, device=x.device))
+        t = torch.max(torch.abs(self.t), torch.tensor(1e-8, device=x.device))[None, :, None, None]
         log_det += torch.sum(torch.log(diag + t))
 
         output = latent_output + t * x
@@ -320,7 +335,6 @@ class Net(nn.Module):
 
         self.layers = nn.ModuleList()
         for layer_num, (ly, lt) in enumerate(zip(layer_size, latent_size)):
-
             '''
             if layer_num % 2 == 0:
                 self.layers.append(SpaceToDepth(4))
