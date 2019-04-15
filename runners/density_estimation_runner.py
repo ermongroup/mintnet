@@ -1,5 +1,6 @@
 from models.cnn_flow import *
 # from models.cnn_new1 import *
+from torch.nn.utils import clip_grad_norm_
 import shutil
 import tensorboardX
 import logging
@@ -129,6 +130,10 @@ class DensityEstimationRunner(object):
                 # Backward and optimize
                 optimizer.zero_grad()
                 loss.backward()
+
+                #added clip_grad_norm
+                clip_grad_norm_(net.parameters(), 10)
+
                 optimizer.step()
 
                 bpd = (loss.item() * data.shape[0] - log_det_logit) / (np.log(2) * np.prod(data.shape)) + 8
