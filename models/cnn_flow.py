@@ -93,41 +93,9 @@ class ActNorm(nn.Module):
             torch.log(torch.abs(self.weight)))
 
 
-class NewNorm(nn.Module):
-    def __init__(self, config, num_inputs):
-        super(NewNorm, self).__init__()
-        self.weight = nn.Parameter(torch.ones(num_inputs)).to(config.device)
-        self.bias = nn.Parameter(torch.zeros(num_inputs)).to(config.device)
-        self.total_length = int(np.prod(num_inputs))
-        self.mask = torch.zeros((self.total_length, self.total_length)).to(config.device)
-
-        # x_n is a special case
-        for i in range(self.mask.shape[0] - 1):
-            self.mask[i, i + 1:] += -1 / (self.total_length - i - 1)
-        self.mask[-1, :] += -1 / self.total_length
-        self.mask = self.mask.reshape((self.total_length * num_inputs[0], *num_inputs[1:]))
-
-        self.initialized = False
-
-    def forward(self, inputs, log_det):
-        if self.initialized == False:
-            self.mask = self.mask.repeat(inputs.shape[0], 1, 1, 1)  # should be same among each input
-            inputs = inputs + (inputs * self.mask).sum(dim=1, keepdim=True)
-            self.weight.data.copy_(1 / (inputs.std(0) + 1e-12))
-            log_det += inputs.shape[0] * (np.log(self.total_length - 1) - np.log(self.total_length))
-            self.initialized = True
-            return (inputs - self.bias) * self.weight, log_det + inputs.size(0) * torch.sum(
-                torch.log(torch.abs(self.weight)))
-
-        # pdb.set_trace()
-        inputs = inputs + (inputs * self.mask).sum(dim=1, keepdim=True)
-        log_det += inputs.shape[0] * (np.log(self.total_length - 1) - np.log(self.total_length))
-        return (inputs - self.bias) * self.weight, log_det + inputs.size(0) * torch.sum(
-            torch.log(torch.abs(self.weight)))
-
 
 # DO NOT FORGET ACTNORM!!!
-class BasicBlock(nn.Module):
+class FundamentalBlock(nn.Module):
     # Input_dim should be 1(grey scale image) or 3(RGB image), or other dimension if use SpaceToDepth
 
     def init_conv_weight(self, weight):
@@ -149,34 +117,185 @@ class BasicBlock(nn.Module):
         self.res = nn.Parameter(torch.ones(1))
 
         self.weight1 = nn.Parameter(
-            torch.zeros(input_dim * latent_dim, input_dim, kernel, kernel)
+            torch.zeros(input_dim * latent_dim, input_dim, kernel, kernel, device=config.device)
+        )
+        self.bias1 = nn.Parameter(
+            torch.zeros(input_dim * latent_dim, device=config.device)
+        )
+        self.center1 = nn.Parameter(
+            torch.randn(input_dim * latent_dim, input_dim, kernel, kernel, device=config.device)
+        )
+        self.init_conv_weight(self.weight1)
+        self.init_conv_bias(self.weight1, self.bias1)
+        self.init_conv_weight(self.center1)
+
+        self.weight2 = nn.Parameter(
+            torch.zeros(input_dim * latent_dim, input_dim, kernel, kernel, device=config.device)
+        )
+        self.bias2 = nn.Parameter(
+            torch.zeros(input_dim * latent_dim, device=config.device)
+        )
+        self.center2 = nn.Parameter(
+            torch.randn(input_dim * latent_dim, input_dim, kernel, kernel, device=config.device)
+        )
+
+        self.init_conv_weight(self.weight2)
+        self.init_conv_bias(self.weight2, self.bias2)
+        self.init_conv_weight(self.center2)
+
+        # Define masks
+        kernel_mid_y, kernel_mid_x = kernel // 2, kernel // 2
+        # zero in the middle(technically not middle, depending on channels), one elsewhere
+        # used to mask out the diagonal element
+        self.mask0 = np.ones((input_dim, input_dim, kernel, kernel), dtype=np.float32)
+
+        # 1 in the middle, zero elsewhere, used for center mask to zero out the non-diagonal element
+        self.mask1 = np.zeros((input_dim, input_dim, kernel, kernel), dtype=np.float32)
+
+        # Mask out the element above diagonal
+        self.mask = np.ones((input_dim, input_dim, kernel, kernel), dtype=np.float32)
+
+        # For RGB ONLY:i=0:Red channel;i=1:Green channel;i=2:Blue channel
+        if type == 'A':
+            for i in range(input_dim):
+                self.mask0[i, i, kernel_mid_y, kernel_mid_x] = 0.0
+                self.mask1[i, i, kernel_mid_y, kernel_mid_x] = 1.0
+                self.mask[i, :, kernel_mid_y + 1:, :] = 0.0
+                # For the current and previous color channels, including the current color
+                self.mask[i, :i + 1, kernel_mid_y, kernel_mid_x + 1:] = 0.0
+                # For the latter color channels, not including the current color
+                self.mask[i, i + 1:, kernel_mid_y, kernel_mid_x:] = 0.0
+        elif type == 'B':
+            for i in range(input_dim):
+                self.mask0[i, i, kernel_mid_y, kernel_mid_x] = 0.0
+                self.mask1[i, i, kernel_mid_y, kernel_mid_x] = 1.0
+                self.mask[i, :, :kernel_mid_y, :] = 0.0
+                # For the current and latter color channels, including the current color
+                self.mask[i, i:, kernel_mid_y, :kernel_mid_x] = 0.0
+                # For the previous color channels, not including the current color
+                self.mask[i, :i, kernel_mid_y, :kernel_mid_x + 1] = 0.0
+        else:
+            raise TypeError('type should be either A or B')
+
+        self.mask0 = torch.tensor(self.mask0, device=config.device)
+        self.mask1 = torch.tensor(self.mask1, device=config.device)
+        self.mask = torch.tensor(self.mask, device=config.device)
+
+        self.mask0 = self.mask0.repeat(latent_dim, 1, 1, 1)
+        self.mask1 = self.mask1.repeat(latent_dim, 1, 1, 1)
+        self.mask = self.mask.repeat(latent_dim, 1, 1, 1)
+
+    def forward(self, x):
+        log_det = x[1]
+        x = x[0]
+        residual = x
+
+        # masked_weight1 = (self.weight1 * self.mask0 + F.softplus(self.center1) * self.mask1) * self.mask
+        masked_weight1 = (self.weight1 * self.mask0 + torch.abs(self.center1) * self.mask1) * self.mask
+        latent_output = F.conv2d(x.repeat(1, self.latent_dim, 1, 1), masked_weight1, bias=self.bias1,
+                                 padding=self.padding, stride=self.stride,
+                                 groups=self.latent_dim)
+
+        center1_diag = self.center1.view(self.latent_dim, self.input_dim, self.input_dim, self.kernel, self.kernel)
+
+        center1_diag = torch.diagonal(center1_diag[..., self.kernel // 2, self.kernel // 2], dim1=-2, dim2=-1)
+
+        # center1_diag = F.softplus(center1_diag)
+        center1_diag = torch.abs(center1_diag)
+
+        center2_diag = self.center2.view(self.latent_dim, self.input_dim, self.input_dim, self.kernel, self.kernel)
+        center2_diag = torch.diagonal(center2_diag[..., self.kernel // 2, self.kernel // 2], dim1=-2, dim2=-1)
+        # center2_diag = F.softplus(center2_diag)
+        center2_diag = torch.abs(center2_diag)
+
+        center_diag = center1_diag * center2_diag  # shape: latent_dim x input_dim
+        latent_output_elu_derivative = elu_derivative(latent_output,
+                                                      1)  # shape: B x latent_dim . input_dim x kernel x kernel
+        latent_output_elu_derivative = latent_output_elu_derivative.view(-1, self.latent_dim, self.input_dim,
+                                                                         latent_output.shape[-2],
+                                                                         latent_output.shape[-1])
+
+        self.diag = (center_diag[..., None, None] * latent_output_elu_derivative).sum(1)
+        latent1 = F.elu(latent_output, alpha=1)
+
+        masked_weight2 = (self.weight2 * self.mask0 + torch.abs(self.center2) * self.mask1) * self.mask
+
+        output = F.conv2d(latent1, masked_weight2, self.bias2, padding=self.padding, stride=self.stride,
+                          groups=self.latent_dim)
+        output = output.view(output.shape[0], self.latent_dim, self.input_dim, output.shape[2], output.shape[3])
+        output = output.sum(dim=1) / self.latent_dim
+
+        mask_res = (self.res > 0).float().to(x.device)
+
+        # MIGHT NEED TO ADD EPSILON TO self.res * mask_res
+        output = output + self.res * mask_res * residual
+        self.diag = self.diag / self.latent_dim + self.res * mask_res
+
+        log_det += torch.sum(torch.log(self.diag))
+
+        # need to act_norm
+
+        return output, log_det
+
+
+# DO NOT FORGET ACTNORM!!!
+class BasicBlock(nn.Module):
+    # Input_dim should be 1(grey scale image) or 3(RGB image), or other dimension if use SpaceToDepth
+
+    def init_conv_weight(self, weight):
+        init.kaiming_uniform_(weight, a=math.sqrt(5))
+        # init.xavier_normal_(weight)
+
+    def init_conv_bias(self, weight, bias):
+        fan_in, _ = init._calculate_fan_in_and_fan_out(weight)
+        bound = 1 / math.sqrt(fan_in)
+        init.uniform_(bias, -bound, bound)
+
+    def __init__(self, config, x_shape, latent_dim, type, input_dim=3, kernel1=3, kernel2=3, kernel3=3, padding=1,
+                 stride=1, init_zero=False):
+        super().__init__()
+        self.input_dim = input_dim
+        self.latent_dim = latent_dim
+        # self.kernel = kernel
+        self.stride = stride
+        self.padding = padding
+        self.res = nn.Parameter(torch.ones(1))
+
+        self.weight1 = nn.Parameter(
+            torch.randn(input_dim * latent_dim, input_dim, kernel1, kernel1) * 1e-5
         )
         self.bias1 = nn.Parameter(
             torch.zeros(input_dim * latent_dim)
         )
-        self.init_conv_weight(self.weight1)
-        self.init_conv_bias(self.weight1, self.bias1)
+
+        if not init_zero:
+            self.init_conv_weight(self.weight1)
+            self.init_conv_bias(self.weight1, self.bias1)
 
         self.weight2 = nn.Parameter(
-            torch.zeros(input_dim * latent_dim, input_dim * latent_dim, kernel, kernel)
+            torch.randn(input_dim * latent_dim, input_dim * latent_dim, kernel2, kernel2) * 1e-5
+            #torch.zeros(input_dim * latent_dim, input_dim * latent_dim, kernel2, kernel2)
         )
         self.bias2 = nn.Parameter(
             torch.zeros(input_dim * latent_dim)
         )
 
-        self.init_conv_weight(self.weight2)
-        self.init_conv_bias(self.weight2, self.bias2)
+        if not init_zero:
+            self.init_conv_weight(self.weight2)
+            self.init_conv_bias(self.weight2, self.bias2)
 
         self.weight3 = nn.Parameter(
-            torch.zeros(input_dim, input_dim * latent_dim, kernel, kernel)
+            #torch.zeros(input_dim, input_dim * latent_dim, kernel3, kernel3)
+            torch.randn(input_dim, input_dim * latent_dim, kernel3, kernel3) * 1e-5
         )
 
         self.bias3 = nn.Parameter(
             torch.zeros(input_dim)
         )
 
-        self.init_conv_weight(self.weight3)
-        self.init_conv_bias(self.weight3, self.bias3)
+        if not init_zero:
+            self.init_conv_weight(self.weight3)
+            self.init_conv_bias(self.weight3, self.bias3)
 
         # Define masks
 
@@ -202,14 +321,15 @@ class BasicBlock(nn.Module):
         self.non_linearity = F.elu
         self.non_linearity_derivative = elu_derivative
 
-        self.t = nn.Parameter(torch.ones(input_dim))
+        #self.t = nn.Parameter(torch.ones(x_shape))
+        self.t = nn.Parameter(torch.tensor(1.))
 
     def forward(self, x):
         log_det = x[1]
         x = x[0]
 
-        masked_weight1 = self.weight1 * self.mask1
-        masked_weight3 = self.weight3 * self.mask3
+        masked_weight1 = (self.weight1 * (1. - self.center_mask1) + torch.abs(
+            self.weight1) * self.center_mask1) * self.mask1
 
         # shape: B x latent_output . input_dim x img_size x img_size
         latent_output = F.conv2d(x, masked_weight1, bias=self.bias1, padding=self.padding, stride=self.stride)
@@ -218,31 +338,19 @@ class BasicBlock(nn.Module):
         diag1 = torch.diagonal(
             masked_weight1[..., kernel_mid_y, kernel_mid_x].view(self.latent_dim, self.input_dim, self.input_dim),
             dim1=-2, dim2=-1)  # shape: latent_dim x input_dim
+
+        # diag1 = torch.ones_like(latent_output. \
+        #            view(x.shape[0], self.latent_dim, self.input_dim, x.shape[-2], x.shape[-1])).detach()\
+        #        * diag1[None, :, :, None, None]  # shape: B x latent_dim x input_dim x img_shape x img_shape
+
         diag1 = self.non_linearity_derivative(latent_output). \
                     view(x.shape[0], self.latent_dim, self.input_dim, x.shape[-2], x.shape[-1]) \
                 * diag1[None, :, :, None, None]  # shape: B x latent_dim x input_dim x img_shape x img_shape
 
         latent_output = self.non_linearity(latent_output)
 
-        center1 = masked_weight1 * self.center_mask1  # shape: latent_dim.input_dim x input_dim x kernel x kernel
-        center3 = masked_weight3 * self.center_mask3  # shape: input_dim x latent_dim.input_dim x kernel x kernel
-
-        # shape: 1 x latent_dim x input_dim x input_dim x kernel x kernel
-        center1 = center1.view(self.latent_dim, self.input_dim, self.input_dim,
-                               center1.shape[-2], center1.shape[-1]).unsqueeze(0)
-        # shape: latent_dim x 1 x input_dim x input_dim x kernel x kernel
-        center3 = center3.view(self.input_dim, self.latent_dim, self.input_dim, center3.shape[-2],
-                               center3.shape[-1]).permute(1, 0, 2, 3, 4).unsqueeze(1)
-
-        sign_prods = torch.sign(center1) * torch.sign(center3)
-        center2 = self.weight2 * self.center_mask2  # shape: latent_dim.input_dim x latent_dim.input_dim x kernel x kernel
-        center2 = center2.view(self.latent_dim, self.input_dim, self.latent_dim, self.input_dim,
-                               center2.shape[-2], center2.shape[-1])
-        center2 = center2.permute(0, 2, 1, 3, 4, 5)
-        center2 = sign_prods * torch.sign(center2) * center2
-        center2 = center2.permute(0, 2, 1, 3, 4, 5).view_as(self.weight2)
-        masked_weight2 = (center2 + self.weight2 * (1. - self.center_mask2)) * self.mask2
-
+        masked_weight2 = (self.weight2 * (1. - self.center_mask2) + torch.abs(
+            self.weight2) * self.center_mask2) * self.mask2
         latent_output = F.conv2d(latent_output, masked_weight2, bias=self.bias2, padding=self.padding,
                                  stride=self.stride)
 
@@ -259,6 +367,8 @@ class BasicBlock(nn.Module):
         latent_output_derivative = self.non_linearity_derivative(latent_output)
         latent_output = self.non_linearity(latent_output)
 
+        masked_weight3 = (self.weight3 * (1. - self.center_mask3) + torch.abs(
+            self.weight3) * self.center_mask3) * self.mask3
         latent_output = F.conv2d(latent_output, masked_weight3, bias=self.bias3, padding=self.padding,
                                  stride=self.stride)
 
@@ -270,7 +380,9 @@ class BasicBlock(nn.Module):
 
         diag = torch.sum(diag2 * diag3, dim=1)  # shape: B x input_dim x img_shape x img_shape
 
-        t = torch.max(torch.abs(self.t), torch.tensor(1e-8, device=x.device))[None, :, None, None]
+        # t = torch.max(torch.abs(self.t), torch.tensor(1e-8, device=x.device))
+        t = torch.max(torch.abs(self.t), torch.tensor(1e-8, device=x.device))
+
         log_det += torch.sum(torch.log(diag + t))
 
         output = latent_output + t * x
@@ -328,12 +440,19 @@ class Net(nn.Module):
         self.config = config
         self.inplanes = channel = config.data.channels
 
+        image_size = config.data.image_size
+
         layer_size = config.model.layer_size
         latent_size = config.model.latent_size
+        # fundamental_size = config.model.fundamental_size
+        fundamental_size = 0
         self.space2depth = SpaceToDepth(4)
         self.depth2space = DepthToSpace(4)
+        init_zero = False
+        init_zero_bound = 30
 
         self.layers = nn.ModuleList()
+        cur_layer = 0
         for layer_num, (ly, lt) in enumerate(zip(layer_size, latent_size)):
             '''
             if layer_num % 2 == 0:
@@ -343,8 +462,6 @@ class Net(nn.Module):
                 self.layers.append(SpaceToDepth(7))
                 channel *= 7 * 7
 
-            
-
             if layer_num % 2 == 0:
                 self.layers.append(DepthToSpace(4))
                 channel = int(channel/(4 * 4))
@@ -353,18 +470,34 @@ class Net(nn.Module):
                 channel = int(channel/(7 * 7))
             '''
 
-            # if layer_num == 0:
-            #     self.layers.append(self.space2depth)
-            #     channel *= 4 * 4
+            if layer_num == 0:
+                self.layers.append(SpaceToDepth(2))
+                channel *= 2 * 2
+                image_size = int(image_size / 2)
 
-            self.layers.append(self._make_layer(ly, lt, channel))
+            # if layer_num == 1:
+            #    self.layers.append(SpaceToDepth(2))
+            #    channel *= 2 * 2
+            #    image_size = int(image_size / 2)
 
-    def _make_layer(self, block_num, latent_dim, input_dim, stride=1):
+            if cur_layer > init_zero_bound:
+                init_zero = True
+
+            x_shape = (config.training.batch_size, channel, image_size, image_size)
+            self.layers.append(self._make_layer(x_shape, ly, lt, channel, init_zero))
+            cur_layer += ly
+
+            print("cur_layer: ", cur_layer)
+
+    def _make_layer(self, x_shape, block_num, latent_dim, input_dim, init_zero, stride=1):
         layers = []
         for i in range(0, block_num):
-            layers.append(BasicBlock(self.config, latent_dim, type='A', input_dim=input_dim))
-            # layers.append(Leaky_Relu(self.config, 0.5))
-            layers.append(BasicBlock(self.config, latent_dim, type='B', input_dim=input_dim))
+            layers.append(BasicBlock(self.config, x_shape, latent_dim, type='A', input_dim=input_dim,
+                                     init_zero=init_zero))
+            # layers.append(FundamentalBlock(self.config, fundamental_dim, type='B', input_dim=input_dim))
+            layers.append(BasicBlock(self.config, x_shape, latent_dim, type='B', input_dim=input_dim,
+                                     init_zero=init_zero))
+            # layers.append(FundamentalBlock(self.config, fundamental_dim, type='A', input_dim=input_dim))
         return nn.Sequential(*layers)
 
     def forward(self, x):
