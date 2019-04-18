@@ -1,6 +1,6 @@
 from models.cnn_flow import *
 # from models.cnn_new1 import *
-from torch.nn.utils import clip_grad_norm_
+from torch.nn.utils import clip_grad_norm_, clip_grad_value_
 import shutil
 import tensorboardX
 import logging
@@ -26,6 +26,9 @@ class DensityEstimationRunner(object):
             return optim.RMSprop(parameters, lr=self.config.optim.lr, weight_decay=self.config.optim.weight_decay)
         elif self.config.optim.optimizer == 'SGD':
             return optim.SGD(parameters, lr=self.config.optim.lr, momentum=0.9)
+        elif self.config.optim.optimizer == 'Adamax':
+            return optim.Adamax(parameters, lr=self.config.optim.lr, betas=(self.config.optim.beta1, 0.999),
+                                weight_decay=self.config.optim.weight_decay)
         else:
             raise NotImplementedError('Optimizer {} not understood.'.format(self.config.optim.optimizer))
 
@@ -33,6 +36,12 @@ class DensityEstimationRunner(object):
         lambd = self.config.data.lambda_logit
         image = lambd + (1 - 2 * lambd) * image
         return torch.log(image) - torch.log1p(-image)
+
+    def adjust_learning_rate(self, optimizer, epoch):
+        """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
+        if epoch - 530 == 0:# or epoch % 60 == 0:
+            for param_group in optimizer.param_groups:
+                param_group['lr'] *= 10
 
     def train(self):
         transform = transforms.Compose([
@@ -84,6 +93,7 @@ class DensityEstimationRunner(object):
         test_iter = iter(test_loader)
 
         net = Net(self.config).to(self.config.device)
+        net = torch.nn.DataParallel(net)
 
         optimizer = self.get_optimizer(net.parameters())
 
@@ -102,8 +112,10 @@ class DensityEstimationRunner(object):
             return loss
 
         if self.args.resume_training:
-            states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'),
+            states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint_epoch_530.pth'),
                                 map_location=self.config.device)
+            #import pdb
+            #pdb.set_trace()
             net.load_state_dict(states[0])
             optimizer.load_state_dict(states[1])
             begin_epoch = states[2]
@@ -114,6 +126,8 @@ class DensityEstimationRunner(object):
 
         # Train the model
         for epoch in range(begin_epoch, self.config.training.n_epochs):
+            self.adjust_learning_rate(optimizer, epoch)
+
             for batch_idx, (data, _) in enumerate(dataloader):
                 net.train()
                 # Transform to logit space since pixel values ranging from 0-1
@@ -125,14 +139,16 @@ class DensityEstimationRunner(object):
                     data.shape) * np.log(1 - 2 * self.config.data.lambda_logit)
 
                 output, log_det = net(data)
-                loss = flow_loss(output, log_det)
+                loss = flow_loss(output, log_det).mean()
 
                 # Backward and optimize
                 optimizer.zero_grad()
                 loss.backward()
 
                 #added clip_grad_norm
-                clip_grad_norm_(net.parameters(), 10)
+                clip_grad_norm_(net.parameters(), 100)
+                #clip_grad_value_(net.parameters(), 0.01)
+
 
                 optimizer.step()
 
@@ -155,7 +171,7 @@ class DensityEstimationRunner(object):
                         test_data.shape) * np.log(1 - 2 * self.config.data.lambda_logit)
 
                     test_output, test_log_det = net(test_data)
-                    test_loss = flow_loss(test_output, test_log_det)
+                    test_loss = flow_loss(test_output, test_log_det).mean()
                     test_bpd = (test_loss.item() * test_data.shape[0] - test_log_det_logit) * (
                             1 / (np.log(2) * np.prod(test_data.shape))) + 8
 
