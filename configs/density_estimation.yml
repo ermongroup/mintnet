@@ -1,7 +1,7 @@
 training:
   n_epochs: 500
   batch_size: 32
-  log_interval: 100
+  log_interval: 10
   snapshot_interval: 10
 
 data:
@@ -15,19 +15,12 @@ data:
 #  channels: 3
 
 model:
-  layer_size:
-    - 1
-    - 1
-    - 8
-
-  latent_size:
-    - 32
-    - 32
-    - 32
-
+  n_layers: 10
+  latent_size: 32
+  n_subsampling: 2
 
 optim:
   optimizer: Adam
-  lr: 0.001
+  lr: 0.0001
   beta1: 0.9
   weight_decay: 0.000001

@@ -129,15 +129,15 @@ class DensityEstimationRunner(object):
 
                 loss = flow_loss(output, log_det)
 
-                # if epoch >= 5 and loss >= 1300:
-                #     states = [
-                #         net.state_dict(),
-                #         optimizer.state_dict(),
-                #         epoch + 1,
-                #         step
-                #     ]
-                #     torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint_debug.pth'))
-                #     return 0
+                if epoch >= 5 and loss >= 1300:
+                    states = [
+                        net.state_dict(),
+                        optimizer.state_dict(),
+                        epoch + 1,
+                        step
+                    ]
+                    torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint_debug.pth'))
+                    return 0
 
                 # Backward and optimize
                 optimizer.zero_grad()
