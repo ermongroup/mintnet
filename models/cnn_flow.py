@@ -12,20 +12,20 @@ from .utils import *
 
 
 def leaky_relu_derivative(x, slope):
-    slope1 = torch.ones_like(x).detach()
-    slope2 = torch.ones_like(x).detach() * slope
-    return torch.where(x > 0, slope1, slope2).detach()
+    slope1 = torch.ones_like(x)
+    slope2 = torch.ones_like(x) * slope
+    return torch.where(x > 0, slope1, slope2)
 
 
 def elu_derivative(x, slope=1.0):
-    slope1 = torch.ones_like(x).detach()
-    slope2 = torch.exp(x).detach() * slope
-    return torch.where(x > 0, slope1, slope2).detach()
+    slope1 = torch.ones_like(x)
+    slope2 = torch.exp(x) * slope
+    return torch.where(x > 0, slope1, slope2)
 
 
 def leaky_relu(x, log_det, slope):
-    slope1 = torch.ones_like(x).detach()
-    slope2 = torch.ones_like(x).detach() * slope
+    slope1 = torch.ones_like(x)
+    slope2 = torch.ones_like(x) * slope
     x = F.leaky_relu(x, negative_slope=slope)
     log_det += torch.sum(torch.log(torch.where(x > 0, slope1, slope2)))
     return x, log_det
@@ -44,8 +44,8 @@ class Leaky_Relu(nn.Module):
     def forward(self, inputs):
         x = inputs[0]
         log_det = inputs[1]
-        slope1 = torch.ones_like(x).detach()
-        slope2 = torch.ones_like(x).detach() * self.slope
+        slope1 = torch.ones_like(x)
+        slope2 = torch.ones_like(x) * self.slope
         x = F.leaky_relu(x, negative_slope=self.slope)
         log_det += torch.sum(torch.log(torch.where(x > 0, slope1, slope2)))
         return x, log_det
@@ -455,7 +455,6 @@ class Net(nn.Module):
             else:
                 self.layers.append(SpaceToDepth(7))
                 channel *= 7 * 7
-
             if layer_num % 2 == 0:
                 self.layers.append(DepthToSpace(4))
                 channel = int(channel/(4 * 4))
@@ -469,10 +468,10 @@ class Net(nn.Module):
                 channel *= 2 * 2
                 image_size = int(image_size / 2)
 
-            if layer_num == 1:
-               self.layers.append(SpaceToDepth(2))
-               channel *= 2 * 2
-               image_size = int(image_size / 2)
+            if layer_num == 2:
+                self.layers.append(SpaceToDepth(2))
+                channel *= 2 * 2
+                image_size = int(image_size / 2)
 
             if cur_layer > init_zero_bound:
                 init_zero = True

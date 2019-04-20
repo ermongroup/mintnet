@@ -25,6 +25,7 @@ model:
     - 32
     - 32
 
+
 optim:
   optimizer: Adam
   lr: 0.001
