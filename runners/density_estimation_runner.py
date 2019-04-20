@@ -91,7 +91,6 @@ class DensityEstimationRunner(object):
         tb_logger = tensorboardX.SummaryWriter(log_dir=tb_path)
 
         def flow_loss(u, log_jacob, size_average=True):
-            breakpoint()
             log_probs = (-0.5 * u.pow(2) - 0.5 * np.log(2 * np.pi)).sum()
             log_jacob = log_jacob.sum()
             loss = -(log_probs + log_jacob)

@@ -98,8 +98,7 @@ class BasicBlock(nn.Module):
     # Input_dim should be 1(grey scale image) or 3(RGB image), or other dimension if use SpaceToDepth
 
     def init_conv_weight(self, weight):
-        init.kaiming_uniform_(weight, a=math.sqrt(5))
-        # init.xavier_normal_(weight)
+        init.xavier_normal_(weight, 0.01)
 
     def init_conv_bias(self, weight, bias):
         fan_in, _ = init._calculate_fan_in_and_fan_out(weight)
@@ -174,6 +173,12 @@ class BasicBlock(nn.Module):
         self.non_linearity_derivative = elu_derivative
 
         self.t = nn.Parameter(torch.ones(1, *shape))
+
+    def check_nan(self, inputs):
+        if torch.isnan(inputs).any():
+            import pdb
+            pdb.set_trace()
+            a = 1
 
     def forward(self, x):
         log_det = x[1]
