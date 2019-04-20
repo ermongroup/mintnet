@@ -106,7 +106,7 @@ class BasicBlock(nn.Module):
         bound = 1 / math.sqrt(fan_in)
         init.uniform_(bias, -bound, bound)
 
-    def __init__(self, config, shape, latent_dim, type, input_dim=3, kernel1=3, kernel2=1, kernel3=3, init_zero=False):
+    def __init__(self, config, shape, latent_dim, type, input_dim=3, kernel1=3, kernel2=3, kernel3=3, init_zero=False):
         super().__init__()
         self.input_dim = input_dim
         self.latent_dim = latent_dim
@@ -297,8 +297,8 @@ class Net(nn.Module):
         cur_layer = 0
 
         self.n_layers = config.model.n_layers
-        subsampling_gap = self.n_layers // (config.mode.n_subsampling + 1)
-        subsampling_anchors = [subsampling_gap * (i + 1) - 1 for i in range(config.model.n_subsampling)]
+        subsampling_gap = self.n_layers // (config.model.n_subsampling + 1)
+        subsampling_anchors = [subsampling_gap * (i + 1) for i in range(config.model.n_subsampling)]
         for layer_num in range(self.n_layers):
             if layer_num in subsampling_anchors:
                 self.layers.append(SpaceToDepth(2))
