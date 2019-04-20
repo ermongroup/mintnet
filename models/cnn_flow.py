@@ -19,39 +19,11 @@ def leaky_relu_derivative(x, slope):
 
 def elu_derivative(x, slope=1.0):
     slope1 = torch.ones_like(x)
+    x = torch.min(x, torch.ones_like(x) * 70.)
     slope2 = torch.exp(x) * slope
     return torch.where(x > 0, slope1, slope2)
 
-
-def leaky_relu(x, log_det, slope):
-    slope1 = torch.ones_like(x)
-    slope2 = torch.ones_like(x) * slope
-    x = F.leaky_relu(x, negative_slope=slope)
-    log_det += torch.sum(torch.log(torch.where(x > 0, slope1, slope2)))
-    return x, log_det
-
-
-class Leaky_Relu(nn.Module):
-    """ An implementation of a activation normalization layer
-    from Glow: Generative Flow with Invertible 1x1 Convolutions
-    (https://arxiv.org/abs/1807.03039).
-    """
-
-    def __init__(self, config, slope):
-        super(Leaky_Relu, self).__init__()
-        self.slope = slope
-
-    def forward(self, inputs):
-        x = inputs[0]
-        log_det = inputs[1]
-        slope1 = torch.ones_like(x)
-        slope2 = torch.ones_like(x) * self.slope
-        x = F.leaky_relu(x, negative_slope=self.slope)
-        log_det += torch.sum(torch.log(torch.where(x > 0, slope1, slope2)))
-        return x, log_det
-
-
-# invertible batch norm 
+# invertible batch norm
 # see paper: Masked Autoregressive Flow for Density Estimation
 EPSILON = 1e-8
 '''
@@ -98,6 +70,8 @@ class BasicBlock(nn.Module):
     # Input_dim should be 1(grey scale image) or 3(RGB image), or other dimension if use SpaceToDepth
 
     def init_conv_weight(self, weight):
+        # init.kaiming_uniform_(weight, math.sqrt(5.))
+        # init.kaiming_normal_(weight, math.sqrt(5.))
         init.xavier_normal_(weight, 0.01)
 
     def init_conv_bias(self, weight, bias):
