@@ -38,40 +38,34 @@ class DensityEstimationRunner(object):
         return torch.log(image) - torch.log1p(-image)
 
     def train(self):
-        transform = transforms.Compose([
+        if self.config.data.horizontal_flip:
+            train_transform = transforms.Compose([
+                transforms.Resize(self.config.data.image_size),
+                transforms.RandomHorizontalFlip(p=0.5),
+                transforms.ToTensor()
+            ])
+
+        else:
+            train_transform = transforms.Compose([
+                transforms.Resize(self.config.data.image_size),
+                transforms.ToTensor()
+            ])
+
+        test_transform = transforms.Compose([
             transforms.Resize(self.config.data.image_size),
             transforms.ToTensor()
         ])
 
         if self.config.data.dataset == 'CIFAR10':
             dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=True, download=True,
-                              transform=transform)
+                              transform=train_transform)
             test_dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=False, download=True,
-                                   transform=transform)
+                                   transform=test_transform)
         elif self.config.data.dataset == 'MNIST':
             dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist'), train=True, download=True,
-                            transform=transform)
+                            transform=train_transform)
             test_dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist_test'), train=False, download=True,
-                                 transform=transform)
-
-        elif self.config.data.dataset == 'CELEBA':
-            dataset = ImageFolder(root=os.path.join(self.args.run, 'datasets', 'celeba'),
-                                  transform=transforms.Compose([
-                                      transforms.CenterCrop(140),
-                                      transforms.Resize(self.config.data.image_size),
-                                      transforms.ToTensor(),
-                                      transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-                                  ]))
-            num_items = len(dataset)
-            indices = list(range(num_items))
-            random_state = np.random.get_state()
-            np.random.seed(2019)
-            np.random.shuffle(indices)
-            np.random.set_state(random_state)
-            train_indices, test_indices = indices[:int(num_items * 0.7)], indices[
-                                                                          int(num_items * 0.7):int(num_items * 0.8)]
-            test_dataset = Subset(dataset, test_indices)
-            dataset = Subset(dataset, train_indices)
+                                 transform=test_transform)
 
         dataloader = DataLoader(dataset, batch_size=self.config.training.batch_size, shuffle=True, num_workers=4,
                                 drop_last=True)
@@ -128,16 +122,6 @@ class DensityEstimationRunner(object):
                 output, log_det = net(data)
 
                 loss = flow_loss(output, log_det)
-
-                if epoch >= 5 and loss >= 1300:
-                    states = [
-                        net.state_dict(),
-                        optimizer.state_dict(),
-                        epoch + 1,
-                        step
-                    ]
-                    torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint_debug.pth'))
-                    return 0
 
                 # Backward and optimize
                 optimizer.zero_grad()
