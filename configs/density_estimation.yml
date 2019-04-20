@@ -1,6 +1,6 @@
 training:
   n_epochs: 500
-  batch_size: 64
+  batch_size: 256
   log_interval: 100
   snapshot_interval: 10
 
@@ -18,16 +18,12 @@ model:
   layer_size:
     - 1
     - 1
-    - 1
-    - 1
-    - 1
+    - 19
 
   latent_size:
-    - 16
-    - 16
-    - 16
-    - 16
-    - 16
+    - 32
+    - 32
+    - 32
 
 optim:
   optimizer: Adam

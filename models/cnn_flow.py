@@ -93,7 +93,6 @@ class ActNorm(nn.Module):
             torch.log(torch.abs(self.weight)))
 
 
-
 # DO NOT FORGET ACTNORM!!!
 class FundamentalBlock(nn.Module):
     # Input_dim should be 1(grey scale image) or 3(RGB image), or other dimension if use SpaceToDepth
@@ -251,7 +250,7 @@ class BasicBlock(nn.Module):
         bound = 1 / math.sqrt(fan_in)
         init.uniform_(bias, -bound, bound)
 
-    def __init__(self, config, x_shape, latent_dim, type, input_dim=3, kernel1=3, kernel2=3, kernel3=3, padding=1,
+    def __init__(self, config, shape, latent_dim, type, input_dim=3, kernel1=3, kernel2=3, kernel3=3, padding=1,
                  stride=1, init_zero=False):
         super().__init__()
         self.input_dim = input_dim
@@ -274,7 +273,7 @@ class BasicBlock(nn.Module):
 
         self.weight2 = nn.Parameter(
             torch.randn(input_dim * latent_dim, input_dim * latent_dim, kernel2, kernel2) * 1e-5
-            #torch.zeros(input_dim * latent_dim, input_dim * latent_dim, kernel2, kernel2)
+            # torch.zeros(input_dim * latent_dim, input_dim * latent_dim, kernel2, kernel2)
         )
         self.bias2 = nn.Parameter(
             torch.zeros(input_dim * latent_dim)
@@ -285,7 +284,7 @@ class BasicBlock(nn.Module):
             self.init_conv_bias(self.weight2, self.bias2)
 
         self.weight3 = nn.Parameter(
-            #torch.zeros(input_dim, input_dim * latent_dim, kernel3, kernel3)
+            # torch.zeros(input_dim, input_dim * latent_dim, kernel3, kernel3)
             torch.randn(input_dim, input_dim * latent_dim, kernel3, kernel3) * 1e-5
         )
 
@@ -321,8 +320,7 @@ class BasicBlock(nn.Module):
         self.non_linearity = F.elu
         self.non_linearity_derivative = elu_derivative
 
-        #self.t = nn.Parameter(torch.ones(x_shape))
-        self.t = nn.Parameter(torch.tensor(1.))
+        self.t = nn.Parameter(torch.ones(1, *shape))
 
     def forward(self, x):
         log_det = x[1]
@@ -380,10 +378,9 @@ class BasicBlock(nn.Module):
 
         diag = torch.sum(diag2 * diag3, dim=1)  # shape: B x input_dim x img_shape x img_shape
 
-        # t = torch.max(torch.abs(self.t), torch.tensor(1e-8, device=x.device))
-        t = torch.max(torch.abs(self.t), torch.tensor(1e-8, device=x.device))
+        t = torch.max(torch.abs(self.t), torch.tensor(1e-3, device=x.device))
 
-        log_det += torch.sum(torch.log(diag + t))
+        log_det += torch.sum(torch.log(diag + t), dim=(1, 2, 3))
 
         output = latent_output + t * x
 
@@ -445,9 +442,6 @@ class Net(nn.Module):
         layer_size = config.model.layer_size
         latent_size = config.model.latent_size
         # fundamental_size = config.model.fundamental_size
-        fundamental_size = 0
-        self.space2depth = SpaceToDepth(4)
-        self.depth2space = DepthToSpace(4)
         init_zero = False
         init_zero_bound = 30
 
@@ -475,36 +469,34 @@ class Net(nn.Module):
                 channel *= 2 * 2
                 image_size = int(image_size / 2)
 
-            # if layer_num == 1:
-            #    self.layers.append(SpaceToDepth(2))
-            #    channel *= 2 * 2
-            #    image_size = int(image_size / 2)
+            if layer_num == 1:
+               self.layers.append(SpaceToDepth(2))
+               channel *= 2 * 2
+               image_size = int(image_size / 2)
 
             if cur_layer > init_zero_bound:
                 init_zero = True
 
-            x_shape = (config.training.batch_size, channel, image_size, image_size)
-            self.layers.append(self._make_layer(x_shape, ly, lt, channel, init_zero))
+            shape = (channel, image_size, image_size)
+            self.layers.append(self._make_layer(shape, ly, lt, channel, init_zero))
             cur_layer += ly
 
             print("cur_layer: ", cur_layer)
 
-    def _make_layer(self, x_shape, block_num, latent_dim, input_dim, init_zero, stride=1):
+    def _make_layer(self, shape, block_num, latent_dim, input_dim, init_zero, stride=1):
         layers = []
         for i in range(0, block_num):
-            layers.append(BasicBlock(self.config, x_shape, latent_dim, type='A', input_dim=input_dim,
+            layers.append(BasicBlock(self.config, shape, latent_dim, type='A', input_dim=input_dim,
                                      init_zero=init_zero))
-            # layers.append(FundamentalBlock(self.config, fundamental_dim, type='B', input_dim=input_dim))
-            layers.append(BasicBlock(self.config, x_shape, latent_dim, type='B', input_dim=input_dim,
+            layers.append(BasicBlock(self.config, shape, latent_dim, type='B', input_dim=input_dim,
                                      init_zero=init_zero))
-            # layers.append(FundamentalBlock(self.config, fundamental_dim, type='A', input_dim=input_dim))
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        log_det = torch.zeros([1], device=x.device)
+        log_det = torch.zeros(x.shape[0], device=x.device)
+
         for layer_num, layer in enumerate(self.layers):
             x, log_det = layer([x, log_det])
-        # x, log_det = self.depth2space([x, log_det])
 
         x = x.reshape(x.shape[0], -1)
         return x, log_det

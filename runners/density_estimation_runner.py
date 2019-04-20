@@ -57,15 +57,8 @@ class DensityEstimationRunner(object):
         elif self.config.data.dataset == 'MNIST':
             dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist'), train=True, download=True,
                             transform=transform)
-            num_items = len(dataset)
-            indices = list(range(num_items))
-            random_state = np.random.get_state()
-            np.random.seed(2019)
-            np.random.shuffle(indices)
-            np.random.set_state(random_state)
-            train_indices, test_indices = indices[:int(num_items * 0.8)], indices[int(num_items * 0.8):]
-            test_dataset = Subset(dataset, test_indices)
-            dataset = Subset(dataset, train_indices)
+            test_dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist_test'), train=False, download=True,
+                                 transform=transform)
 
         elif self.config.data.dataset == 'CELEBA':
             dataset = ImageFolder(root=os.path.join(self.args.run, 'datasets', 'celeba'),
@@ -105,7 +98,7 @@ class DensityEstimationRunner(object):
 
         def flow_loss(u, log_jacob, size_average=True):
             log_probs = (-0.5 * u.pow(2) - 0.5 * np.log(2 * np.pi)).sum()
-            loss = -(log_probs + log_jacob)
+            loss = -(log_probs + log_jacob).sum()
 
             if size_average:
                 loss /= u.size(0)
@@ -139,7 +132,9 @@ class DensityEstimationRunner(object):
                     data.shape) * np.log(1 - 2 * self.config.data.lambda_logit)
 
                 output, log_det = net(data)
-                loss = flow_loss(output, log_det).mean()
+
+                loss = flow_loss(output, log_det)
+
 
                 # Backward and optimize
                 optimizer.zero_grad()
@@ -171,7 +166,7 @@ class DensityEstimationRunner(object):
                         test_data.shape) * np.log(1 - 2 * self.config.data.lambda_logit)
 
                     test_output, test_log_det = net(test_data)
-                    test_loss = flow_loss(test_output, test_log_det).mean()
+                    test_loss = flow_loss(test_output, test_log_det)
                     test_bpd = (test_loss.item() * test_data.shape[0] - test_log_det_logit) * (
                             1 / (np.log(2) * np.prod(test_data.shape))) + 8
 
