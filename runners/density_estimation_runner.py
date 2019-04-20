@@ -136,16 +136,24 @@ class DensityEstimationRunner(object):
 
                 loss = flow_loss(output, log_det)
 
+                if epoch >= 1 and loss > 1e5:
+                    states = [
+                        net.state_dict(),
+                        optimizer.state_dict(),
+                        epoch + 1,
+                        step
+                    ]
+                    torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
+                                                    'checkpoint_epoch_{}-debug.pth'.format(epoch + 1)))
+                    torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint-debug.pth'))
 
                 # Backward and optimize
                 optimizer.zero_grad()
                 loss.backward()
 
                 #added clip_grad_norm
-                clip_grad_norm_(net.parameters(), 100)
-                #clip_grad_value_(net.parameters(), 0.01)
-
-
+                if epoch < 20:
+                    clip_grad_norm_(net.parameters(), 10000)
                 optimizer.step()
 
                 bpd = (loss.item() * data.shape[0] - log_det_logit) / (np.log(2) * np.prod(data.shape)) + 8
@@ -180,7 +188,6 @@ class DensityEstimationRunner(object):
                     logging.info(
                         "epoch: {}, batch: {}, training_loss: {}, test_loss: {}".format(epoch, batch_idx, loss.item(),
                                                                                         test_loss.item()))
-
                 step += 1
 
             if (epoch + 1) % self.config.training.snapshot_interval == 0:
@@ -193,3 +200,93 @@ class DensityEstimationRunner(object):
                 torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
                                                 'checkpoint_epoch_{}.pth'.format(epoch + 1)))
                 torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))
+
+
+    def test(self):
+        transform = transforms.Compose([
+            transforms.Resize(self.config.data.image_size),
+            transforms.ToTensor()
+        ])
+
+        if self.config.data.dataset == 'CIFAR10':
+            dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=True, download=True,
+                              transform=transform)
+            test_dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=False, download=True,
+                                   transform=transform)
+        elif self.config.data.dataset == 'MNIST':
+            dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist'), train=True, download=True,
+                            transform=transform)
+            test_dataset = MNIST(os.path.join(self.args.run, 'datasets', 'fmnist'), train=False, download=True,
+                                              transform=transform)
+
+        elif self.config.data.dataset == 'CELEBA':
+            dataset = ImageFolder(root=os.path.join(self.args.run, 'datasets', 'celeba'),
+                                  transform=transforms.Compose([
+                                      transforms.CenterCrop(140),
+                                      transforms.Resize(self.config.data.image_size),
+                                      transforms.ToTensor(),
+                                      transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+                                  ]))
+            num_items = len(dataset)
+            indices = list(range(num_items))
+            random_state = np.random.get_state()
+            np.random.seed(2019)
+            np.random.shuffle(indices)
+            np.random.set_state(random_state)
+            train_indices, test_indices = indices[:int(num_items * 0.7)], indices[
+                                                                          int(num_items * 0.7):int(num_items * 0.8)]
+            test_dataset = Subset(dataset, test_indices)
+
+
+        test_loader = DataLoader(test_dataset, batch_size=self.config.training.batch_size, shuffle=True,
+                                 num_workers=4, drop_last=True)
+        test_iter = iter(test_loader)
+
+        net = Net(self.config).to(self.config.device)
+        net = torch.nn.DataParallel(net)
+        optimizer = self.get_optimizer(net.parameters())
+
+        def flow_loss(u, log_jacob, size_average=True):
+            log_probs = (-0.5 * u.pow(2) - 0.5 * np.log(2 * np.pi)).sum()
+            loss = -(log_probs + log_jacob)
+
+            if size_average:
+                loss /= u.size(0)
+            return loss
+
+
+        states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'),
+                                map_location=self.config.device)
+
+        net.load_state_dict(states[0])
+        optimizer.load_state_dict(states[1])
+        loaded_epoch = states[2]
+
+        logging.info(
+            "Loading the model from epoch {}".format(loaded_epoch))
+
+        # Test the model
+        net.eval()
+        total_loss = 0
+        total_bpd = 0
+        with torch.no_grad():
+            for batch_idx, (test_data, _) in enumerate(test_loader):
+                test_data = test_data.to(self.config.device) * 255. / 256.
+                test_data += torch.rand_like(test_data) / 256.
+                test_data = self.logit_transform(test_data)
+
+                test_log_det_logit = F.softplus(-test_data).sum() + F.softplus(test_data).sum() + np.prod(
+                    test_data.shape) * np.log(1 - 2 * self.config.data.lambda_logit)
+
+                test_output, test_log_det = net(test_data)
+                test_loss = flow_loss(test_output, test_log_det)
+                test_bpd = (test_loss.item() * test_data.shape[0] - test_log_det_logit) * (
+                        1 / (np.log(2) * np.prod(test_data.shape))) + 8
+
+                total_loss += test_loss
+                total_bpd += test_bpd
+        logging.info(
+            "Total batch:{}\nTotal loss: {}\nTotal bpd: {}".format(batch_idx+1, total_loss.data/(batch_idx+1), total_bpd.data/(batch_idx+1)))
+
+
+

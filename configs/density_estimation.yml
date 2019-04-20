@@ -16,14 +16,15 @@ data:
 
 model:
   layer_size:
-    - 1
-    - 1
-    - 20
+    - 4
+    - 5
+    - 5
 
   latent_size:
     - 32
     - 32
     - 32
+
 
 optim:
   optimizer: Adam
