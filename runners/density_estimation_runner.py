@@ -37,12 +37,6 @@ class DensityEstimationRunner(object):
         image = lambd + (1 - 2 * lambd) * image
         return torch.log(image) - torch.log1p(-image)
 
-    def adjust_learning_rate(self, optimizer, epoch):
-        """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
-        if epoch - 530 == 0:# or epoch % 60 == 0:
-            for param_group in optimizer.param_groups:
-                param_group['lr'] *= 10
-
     def train(self):
         transform = transforms.Compose([
             transforms.Resize(self.config.data.image_size),
@@ -108,8 +102,7 @@ class DensityEstimationRunner(object):
         if self.args.resume_training:
             states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint_epoch_530.pth'),
                                 map_location=self.config.device)
-            #import pdb
-            #pdb.set_trace()
+
             net.load_state_dict(states[0])
             optimizer.load_state_dict(states[1])
             begin_epoch = states[2]
@@ -119,9 +112,9 @@ class DensityEstimationRunner(object):
             begin_epoch = 0
 
         # Train the model
+        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[530], gamma=0.1)
         for epoch in range(begin_epoch, self.config.training.n_epochs):
-            self.adjust_learning_rate(optimizer, epoch)
-
+            scheduler.step()
             for batch_idx, (data, _) in enumerate(dataloader):
                 net.train()
                 # Transform to logit space since pixel values ranging from 0-1
@@ -135,16 +128,23 @@ class DensityEstimationRunner(object):
                 output, log_det = net(data)
 
                 loss = flow_loss(output, log_det)
-
+                # if epoch >= 5 and loss >= 1300:
+                #     states = [
+                #         net.state_dict(),
+                #         optimizer.state_dict(),
+                #         epoch + 1,
+                #         step
+                #     ]
+                #     torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint_debug.pth'))
+                #     return 0
 
                 # Backward and optimize
                 optimizer.zero_grad()
                 loss.backward()
 
-                #added clip_grad_norm
-                clip_grad_norm_(net.parameters(), 100)
-                #clip_grad_value_(net.parameters(), 0.01)
-
+                # added clip_grad_norm
+                # clip_grad_norm_(net.parameters(), 1000)
+                # clip_grad_value_(net.parameters(), 0.01)
 
                 optimizer.step()
 

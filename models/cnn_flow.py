@@ -378,7 +378,7 @@ class BasicBlock(nn.Module):
 
         diag = torch.sum(diag2 * diag3, dim=1)  # shape: B x input_dim x img_shape x img_shape
 
-        t = torch.max(torch.abs(self.t), torch.tensor(1e-3, device=x.device))
+        t = torch.max(torch.abs(self.t), torch.tensor(0.0, device=x.device))
 
         log_det += torch.sum(torch.log(diag + t), dim=(1, 2, 3))
 
