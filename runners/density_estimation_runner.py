@@ -37,7 +37,6 @@ class DensityEstimationRunner(object):
         image = lambd + (1 - 2 * lambd) * image
         return torch.log(image) - torch.log1p(-image)
 
-
     def compute_grad_norm(self, model):
         # total_norm = 0.
         # for p in model.parameters():
@@ -146,9 +145,9 @@ class DensityEstimationRunner(object):
                 optimizer.zero_grad()
                 loss.backward()
 
-                # added clip_grad_norm
-                # clip_grad_norm_(net.parameters(), 5000)
-                clip_grad_value_(net.parameters(), 10.)
+                # TODO: remove the below sanity check
+                if loss.item() > 1e7:
+                    return 0
 
                 optimizer.step()
 
@@ -197,7 +196,6 @@ class DensityEstimationRunner(object):
                                                 'checkpoint_epoch_{}.pth'.format(epoch + 1)))
                 torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))
 
-
     def test(self):
         transform = transforms.Compose([
             transforms.Resize(self.config.data.image_size),
@@ -213,7 +211,7 @@ class DensityEstimationRunner(object):
             dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist'), train=True, download=True,
                             transform=transform)
             test_dataset = MNIST(os.path.join(self.args.run, 'datasets', 'fmnist'), train=False, download=True,
-                                              transform=transform)
+                                 transform=transform)
 
         elif self.config.data.dataset == 'CELEBA':
             dataset = ImageFolder(root=os.path.join(self.args.run, 'datasets', 'celeba'),
@@ -233,10 +231,8 @@ class DensityEstimationRunner(object):
                                                                           int(num_items * 0.7):int(num_items * 0.8)]
             test_dataset = Subset(dataset, test_indices)
 
-
         test_loader = DataLoader(test_dataset, batch_size=self.config.training.batch_size, shuffle=True,
-                                 num_workers=4, drop_last=True)
-        test_iter = iter(test_loader)
+                                 num_workers=4, drop_last=False)
 
         net = Net(self.config).to(self.config.device)
         net = torch.nn.DataParallel(net)
@@ -250,9 +246,8 @@ class DensityEstimationRunner(object):
                 loss /= u.size(0)
             return loss
 
-
         states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'),
-                                map_location=self.config.device)
+                            map_location=self.config.device)
 
         net.load_state_dict(states[0])
         optimizer.load_state_dict(states[1])
@@ -265,6 +260,7 @@ class DensityEstimationRunner(object):
         net.eval()
         total_loss = 0
         total_bpd = 0
+        total_n_data = 0
         with torch.no_grad():
             for batch_idx, (test_data, _) in enumerate(test_loader):
                 test_data = test_data.to(self.config.device) * 255. / 256.
@@ -276,13 +272,13 @@ class DensityEstimationRunner(object):
 
                 test_output, test_log_det = net(test_data)
                 test_loss = flow_loss(test_output, test_log_det)
+
                 test_bpd = (test_loss.item() * test_data.shape[0] - test_log_det_logit) * (
                         1 / (np.log(2) * np.prod(test_data.shape))) + 8
 
-                total_loss += test_loss
-                total_bpd += test_bpd
+                total_loss += test_loss * test_data.shape[0]
+                total_bpd += test_bpd * test_data.shape[0]
+                total_n_data += test_data.shape[0]
         logging.info(
-            "Total batch:{}\nTotal loss: {}\nTotal bpd: {}".format(batch_idx+1, total_loss.data/(batch_idx+1), total_bpd.data/(batch_idx+1)))
-
-
-
+            "Total batch:{}\nTotal loss: {}\nTotal bpd: {}".format(batch_idx + 1, total_loss.item() / total_n_data,
+                                                                   total_bpd.item() / total_n_data))

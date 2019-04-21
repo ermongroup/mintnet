@@ -23,6 +23,7 @@ def elu_derivative(x, slope=1.0):
     slope2 = torch.exp(x) * slope
     return torch.where(x > 0, slope1, slope2)
 
+
 # invertible batch norm
 # see paper: Masked Autoregressive Flow for Density Estimation
 EPSILON = 1e-8
@@ -83,7 +84,6 @@ class BasicBlock(nn.Module):
         super().__init__()
         self.input_dim = input_dim
         self.latent_dim = latent_dim
-        # self.kernel = kernel
         self.padding1 = kernel1 // 2
         self.padding2 = kernel2 // 2
         self.padding3 = kernel3 // 2
@@ -148,12 +148,6 @@ class BasicBlock(nn.Module):
 
         self.t = nn.Parameter(torch.ones(1, *shape))
 
-    def check_nan(self, inputs):
-        if torch.isnan(inputs).any():
-            import pdb
-            pdb.set_trace()
-            a = 1
-
     def forward(self, x):
         log_det = x[1]
         x = x[0]
@@ -168,10 +162,6 @@ class BasicBlock(nn.Module):
         diag1 = torch.diagonal(
             masked_weight1[..., kernel_mid_y, kernel_mid_x].view(self.latent_dim, self.input_dim, self.input_dim),
             dim1=-2, dim2=-1)  # shape: latent_dim x input_dim
-
-        # diag1 = torch.ones_like(latent_output. \
-        #            view(x.shape[0], self.latent_dim, self.input_dim, x.shape[-2], x.shape[-1])).detach()\
-        #        * diag1[None, :, :, None, None]  # shape: B x latent_dim x input_dim x img_shape x img_shape
 
         diag1 = self.non_linearity_derivative(latent_output). \
                     view(x.shape[0], self.latent_dim, self.input_dim, x.shape[-2], x.shape[-1]) \
