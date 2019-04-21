@@ -37,6 +37,25 @@ class DensityEstimationRunner(object):
         image = lambd + (1 - 2 * lambd) * image
         return torch.log(image) - torch.log1p(-image)
 
+
+    def compute_grad_norm(self, model):
+        # total_norm = 0.
+        # for p in model.parameters():
+        #     if p.requires_grad is True:
+        #         total_norm += p.grad.data.norm().item() ** 2
+        # return total_norm ** (1 / 2.)
+        minv = np.inf
+        maxv = -np.inf
+        meanv = 0.
+        total_p = 0
+        for p in model.parameters():
+            if p.requires_grad is True:
+                minv = min(minv, p.grad.data.abs().min().item())
+                maxv = max(maxv, p.grad.data.abs().max().item())
+                meanv += p.grad.data.abs().sum().item()
+                total_p += np.prod(p.grad.data.shape)
+        return minv, maxv, meanv / total_p
+
     def train(self):
         if self.config.data.horizontal_flip:
             train_transform = transforms.Compose([
@@ -94,7 +113,7 @@ class DensityEstimationRunner(object):
             return loss
 
         if self.args.resume_training:
-            states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint_epoch_530.pth'),
+            states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'),
                                 map_location=self.config.device)
 
             net.load_state_dict(states[0])
@@ -106,7 +125,7 @@ class DensityEstimationRunner(object):
             begin_epoch = 0
 
         # Train the model
-        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[530], gamma=0.1)
+        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[250], gamma=0.1)
         for epoch in range(begin_epoch, self.config.training.n_epochs):
             scheduler.step()
             for batch_idx, (data, _) in enumerate(dataloader):
@@ -128,8 +147,8 @@ class DensityEstimationRunner(object):
                 loss.backward()
 
                 # added clip_grad_norm
-                # clip_grad_norm_(net.parameters(), 1000)
-                # clip_grad_value_(net.parameters(), 0.01)
+                # clip_grad_norm_(net.parameters(), 5000)
+                clip_grad_value_(net.parameters(), 10.)
 
                 optimizer.step()
 
