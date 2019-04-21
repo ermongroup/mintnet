@@ -11,24 +11,18 @@ data:
   
   dataset: CIFAR10
   image_size: 32
-  lambda_logit: 0.05
   channels: 3
   num_classes: 10
 
 model:
-  layer_size:
-    - 2
-    - 2
-    - 1
-    - 1
-  latent_size:
-    - 218
-    - 128
-    - 128
-    - 64
+  n_layers: 24
+  latent_size: 32
+  n_subsampling: 2
+
 
 optim:
   optimizer: Adam
-  lr: 0.01
+  lr: 0.001
   beta1: 0.9
   weight_decay: 0.000001
+  amsgrad: True
