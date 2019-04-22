@@ -2,23 +2,27 @@ training:
   n_epochs: 500
   batch_size: 64
   log_interval: 10
+  snapshot_interval: 10
 
 data:
-#  dataset: MNIST
-#  image_size: 28
-#  channels: 1
-#  num_classes: 10
-  
-  dataset: CIFAR10
-  image_size: 32
-  channels: 3
+  dataset: MNIST
+  mean: !!python/tuple [0.1307,]
+  std: !!python/tuple [0.3081,]
+  image_size: 28
+  channels: 1
   num_classes: 10
+  
+  #dataset: CIFAR10
+  #mean: !!python/tuple [0.5, 0.5, 0.5]
+  #std: !!python/tuple [0.5, 0.5, 0.5]
+  #image_size: 32
+  #channels: 3
+  #num_classes: 10
 
 model:
-  n_layers: 24
+  n_layers: 2
   latent_size: 32
-  n_subsampling: 2
-
+  n_subsampling: 0
 
 optim:
   optimizer: Adam

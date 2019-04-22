@@ -1,4 +1,6 @@
 from models.cnn_classification import *
+from torch.nn.utils import clip_grad_norm_, clip_grad_value_
+import shutil
 import tensorboardX
 import logging
 from torchvision.datasets import CIFAR10, MNIST, ImageFolder
@@ -7,6 +9,7 @@ from torch.utils.data import DataLoader, Subset
 import torch.nn.functional as F
 import numpy as np
 import torch.optim as optim
+import os
 
 
 class ClassificationRunner(object):
@@ -28,7 +31,8 @@ class ClassificationRunner(object):
     def train(self):
         transform = transforms.Compose([
             transforms.Resize(self.config.data.image_size),
-            transforms.ToTensor()
+            transforms.ToTensor(),
+            transforms.Normalize(self.config.data.mean, self.config.data.std)
         ])
 
         if self.config.data.dataset == 'CIFAR10':
@@ -66,6 +70,7 @@ class ClassificationRunner(object):
         test_loader = DataLoader(test_dataset, batch_size=self.config.training.batch_size, shuffle=True,
                                  num_workers=4, drop_last=True)
         test_iter = iter(test_loader)
+        #test_iter = iter(dataloader)
 
         net = Net(self.config).to(self.config.device)
         net = torch.nn.DataParallel(net)
@@ -77,6 +82,16 @@ class ClassificationRunner(object):
 
         tb_logger = tensorboardX.SummaryWriter(log_dir=tb_path)
 
+        if self.args.resume_training:
+            states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint_epoch_90.pth'),
+                                map_location=self.config.device)
+            net.load_state_dict(states[0])
+            optimizer.load_state_dict(states[1])
+            begin_epoch = states[2]
+            step = states[3]
+        else:
+            step = 0
+            begin_epoch = 0
 
         # Train the model
         # scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[150], gamma=0.3)
@@ -86,15 +101,17 @@ class ClassificationRunner(object):
 
         for epoch in range(begin_epoch, self.config.training.n_epochs):
             scheduler.step()
-
             # manually adjust learning rate
             # self.adjust_learning_rate(optimizer, epoch)
             # total_loss = 0 #for plateau scheduler only
             for batch_idx, (data, target) in enumerate(dataloader):
                 net.train()
+                data = data.to(device=self.config.device)
+                target = target.to(device=self.config.device)
                 output = net(data)
                 loss = F.nll_loss(output, target)
-                pred = output.data.max(1, keepdim=True)[1]
+
+                pred = torch.argmax(output, dim=1, keepdim=True) #output.data.max(1, keepdim=True)[1]
                 train_accuracy = float(pred.eq(target.data.view_as(pred)).sum()) / float(target.shape[0])
 
                 # total_loss += loss.data #for plateau scheduler
@@ -105,18 +122,32 @@ class ClassificationRunner(object):
 
                 # validation
                 net.eval()
+                total_correct = 0.
+                total_loss = 0.
+                total = 0.
                 with torch.no_grad():
-                    try:
-                        test_data, test_target = next(test_iter)
-                    except StopIteration:
-                        test_iter = iter(test_loader)
-                        test_data, test_target = next(test_iter)
 
-                    test_output = net(test_data)
-                    test_loss = F.nll_loss(test_output, test_target)
-                    test_pred = test_output.data.max(1, keepdim=True)[1]
-                    test_accuracy = float(pred.eq(test_target.data.view_as(test_pred)).sum()) \
-                                    / float(test_target.shape[0])
+                    for batch_idx_test, (test_data, test_target) in enumerate(test_loader):
+                    #try:
+                    #    test_data, test_target = next(test_iter)
+                    #except StopIteration:
+                    #    test_iter = iter(test_loader)
+                    #    test_data, test_target = next(test_iter)
+
+                        #import pdb
+                        #pdb.set_trace()
+                        test_data = test_data.to(device=self.config.device)
+                        test_target = test_target.to(device=self.config.device)
+                        test_output = net(test_data)
+                        test_loss = F.nll_loss(test_output, test_target)
+                        test_pred = torch.argmax(test_output, dim=1, keepdim=True)
+                        total_loss += test_loss
+                        total_correct += float(pred.eq(test_target.data.view_as(test_pred)).sum())
+                        total += float(test_target.shape[0])
+                        #test_accuracy = float(pred.eq(test_target.data.view_as(test_pred)).sum()) \
+                                    #/ float(test_target.shape[0])
+                test_accuracy = total_correct / total
+                test_loss = total_loss / (batch_idx_test + 1)
 
                 tb_logger.add_scalar('training_loss', loss, global_step=step)
                 tb_logger.add_scalar('training_accuracy', train_accuracy, global_step=step)
@@ -125,13 +156,13 @@ class ClassificationRunner(object):
 
                 if step % self.config.training.log_interval == 0:
                     logging.info(
-                        "epoch: {}, batch: {}, training_loss: {}, test_loss: {}".format(epoch, batch_idx, loss.item(),
-                                                                                        test_loss.item()))
+                        "epoch: {}, batch: {}, training_loss: {}, train_accuracy: {}, test_loss: {}, test_accuracy: {}"
+                        .format(epoch,batch_idx, loss.item(), train_accuracy, test_loss.item(), test_accuracy))
                 step += 1
 
             # scheduler.step(total_loss) #for palteau scheduler only
-
             if (epoch + 1) % self.config.training.snapshot_interval == 0:
+                print(self.config.training.snapshot_interval)
                 states = [
                     net.state_dict(),
                     optimizer.state_dict(),

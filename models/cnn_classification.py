@@ -1,14 +1,11 @@
-def leaky_relu_derivative(x, slope):
-    slope1 = torch.ones_like(x)
-    slope2 = torch.ones_like(x) * slope
-    return torch.where(x > 0, slope1, slope2)
-
-
-def elu_derivative(x, slope=1.0):
-    slope1 = torch.ones_like(x)
-    x = torch.min(x, torch.ones_like(x) * 70.)
-    slope2 = torch.exp(x) * slope
-    return torch.where(x > 0, slope1, slope2)
+import torch
+import torch.utils.data
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.nn.init as init
+import numpy as np
+import math
+from .utils import *
 
 
 class ActNorm(nn.Module):
@@ -38,7 +35,7 @@ class BasicBlock(nn.Module):
     def init_conv_weight(self, weight):
         # init.kaiming_uniform_(weight, math.sqrt(5.))
         # init.kaiming_normal_(weight, math.sqrt(5.))
-        init.xavier_normal_(weight, 0.01)
+        init.xavier_normal_(weight, 0.1)
 
     def init_conv_bias(self, weight, bias):
         fan_in, _ = init._calculate_fan_in_and_fan_out(weight)
@@ -110,7 +107,6 @@ class BasicBlock(nn.Module):
                     self.center_mask2[i * input_dim: (i + 1) * input_dim, j * input_dim: (j + 1) * input_dim, ...])
 
         self.non_linearity = F.elu
-        self.non_linearity_derivative = elu_derivative
 
         self.t = nn.Parameter(torch.ones(1, *shape))
 
@@ -121,7 +117,6 @@ class BasicBlock(nn.Module):
             a = 1
 
     def forward(self, x):
-
         masked_weight1 = (self.weight1 * (1. - self.center_mask1) + torch.abs(
             self.weight1) * self.center_mask1) * self.mask1
         # shape: B x latent_output . input_dim x img_size x img_size
@@ -130,11 +125,13 @@ class BasicBlock(nn.Module):
 
         masked_weight2 = (self.weight2 * (1. - self.center_mask2) + torch.abs(
             self.weight2) * self.center_mask2) * self.mask2
+
         latent_output = F.conv2d(latent_output, masked_weight2, bias=self.bias2, padding=self.padding2, stride=1)
         latent_output = self.non_linearity(latent_output)
 
         masked_weight3 = (self.weight3 * (1. - self.center_mask3) + torch.abs(
             self.weight3) * self.center_mask3) * self.mask3
+
         latent_output = F.conv2d(latent_output, masked_weight3, bias=self.bias3, padding=self.padding3, stride=1)
 
         t = torch.max(torch.abs(self.t), torch.tensor(1e-12, device=x.device))
@@ -216,6 +213,7 @@ class Net(nn.Module):
 
             shape = (channel, image_size, image_size)
             self.layers.append(self._make_layer(shape, 1, config.model.latent_size, channel, init_zero))
+            #self.layers.append(torch.nn.BatchNorm2d(channel))
             print('basic block')
             
 
