@@ -152,7 +152,7 @@ class BasicBlock(nn.Module):
         log_det = x[1]
         x = x[0]
 
-        #masked_weight1 = (self.weight1 * (1. - self.center_mask1) + torch.abs(
+        # masked_weight1 = (self.weight1 * (1. - self.center_mask1) + torch.abs(
         #    self.weight1) * self.center_mask1) * self.mask1
         ## more flexible diagonal
         masked_weight1 = self.weight1 * self.mask1
@@ -173,7 +173,7 @@ class BasicBlock(nn.Module):
 
         latent_output = self.non_linearity(latent_output)
 
-        #masked_weight2 = (self.weight2 * (1. - self.center_mask2) + torch.abs(
+        # masked_weight2 = (self.weight2 * (1. - self.center_mask2) + torch.abs(
         #    self.weight2) * self.center_mask2) * self.mask2
 
         ## more flexible diagonal
@@ -191,12 +191,11 @@ class BasicBlock(nn.Module):
         center2 = self.weight2 * self.center_mask2  # shape: latent_dim.input_dim x latent_dim.input_dim x kernel x kernel
         center2 = center2.view(self.latent_dim, self.input_dim, self.latent_dim, self.input_dim,
                                center2.shape[-2], center2.shape[-1])
-        #import pdb
-        #pdb.set_trace()
+
         center2 = center2.permute(0, 2, 1, 3, 4, 5)
-        center2 = sign_prods * torch.sign(center2) * center2
+        center2 = sign_prods * torch.abs(center2)
         center2 = center2.permute(0, 2, 1, 3, 4, 5).contiguous().view_as(self.weight2)
-        masked_weight2 = (center2 + self.weight2 * (1. - self.center_mask2)) * self.mask2
+        masked_weight2 = (center2 * self.center_mask2 + self.weight2 * (1. - self.center_mask2)) * self.mask2
         ## more flexible diagonal
 
         latent_output = F.conv2d(latent_output, masked_weight2, bias=self.bias2, padding=self.padding2, stride=1)
@@ -214,7 +213,7 @@ class BasicBlock(nn.Module):
         latent_output_derivative = self.non_linearity_derivative(latent_output)
         latent_output = self.non_linearity(latent_output)
 
-        #masked_weight3 = (self.weight3 * (1. - self.center_mask3) + torch.abs(
+        # masked_weight3 = (self.weight3 * (1. - self.center_mask3) + torch.abs(
         #    self.weight3) * self.center_mask3) * self.mask3
 
         latent_output = F.conv2d(latent_output, masked_weight3, bias=self.bias3, padding=self.padding3, stride=1)
