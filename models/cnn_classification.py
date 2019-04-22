@@ -186,12 +186,12 @@ class Net(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.inplanes = channel = config.data.channels
+        self.inplanes = channel = 16
 
         image_size = config.data.image_size
 
         init_zero = False
-        init_zero_bound = 30
+        init_zero_bound = 100
 
         self.layers = nn.ModuleList()
         cur_layer = 0
@@ -213,7 +213,6 @@ class Net(nn.Module):
 
             shape = (channel, image_size, image_size)
             self.layers.append(self._make_layer(shape, 1, config.model.latent_size, channel, init_zero))
-            #self.layers.append(torch.nn.BatchNorm2d(channel))
             print('basic block')
             
 
@@ -227,6 +226,9 @@ class Net(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
+        # pad to 16 channels
+        x = torch.cat([x, torch.zeros(x.shape[0], 16 - x.shape[1], x.shape[-2], x.shape[-1], device=x.device)], dim=1)
+
         for layer_num, layer in enumerate(self.layers):
             x = layer(x)
 

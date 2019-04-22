@@ -29,18 +29,25 @@ class ClassificationRunner(object):
             raise NotImplementedError('Optimizer {} not understood.'.format(self.config.optim.optimizer))
 
     def train(self):
-        transform = transforms.Compose([
-            transforms.Resize(self.config.data.image_size),
-            transforms.ToTensor(),
-            transforms.Normalize(self.config.data.mean, self.config.data.std)
-        ])
 
         if self.config.data.dataset == 'CIFAR10':
+            transform = transforms.Compose([
+                transforms.Resize(self.config.data.image_size),
+                transforms.ToTensor(),
+                transforms.Normalize(self.config.data.mean, self.config.data.std)
+            ])
+
             dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=True, download=True,
                               transform=transform)
             test_dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=False, download=True,
                                    transform=transform)
+
         elif self.config.data.dataset == 'MNIST':
+            transform = transforms.Compose([
+                transforms.Resize(self.config.data.image_size),
+                transforms.ToTensor()
+            ])
+
             dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist'), train=True, download=True,
                             transform=transform)
             test_dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist_test'), train=False, download=True,
@@ -67,10 +74,9 @@ class ClassificationRunner(object):
 
         dataloader = DataLoader(dataset, batch_size=self.config.training.batch_size, shuffle=True, num_workers=4,
                                 drop_last=True)
-        test_loader = DataLoader(test_dataset, batch_size=self.config.training.batch_size, shuffle=True,
+        test_loader = DataLoader(test_dataset, batch_size=self.config.training.batch_size, shuffle=False,
                                  num_workers=4, drop_last=True)
         test_iter = iter(test_loader)
-        #test_iter = iter(dataloader)
 
         net = Net(self.config).to(self.config.device)
         net = torch.nn.DataParallel(net)
@@ -111,7 +117,7 @@ class ClassificationRunner(object):
                 output = net(data)
                 loss = F.nll_loss(output, target)
 
-                pred = torch.argmax(output, dim=1, keepdim=True) #output.data.max(1, keepdim=True)[1]
+                pred = torch.argmax(output, dim=1, keepdim=True)
                 train_accuracy = float(pred.eq(target.data.view_as(pred)).sum()) / float(target.shape[0])
 
                 # total_loss += loss.data #for plateau scheduler
@@ -122,32 +128,20 @@ class ClassificationRunner(object):
 
                 # validation
                 net.eval()
-                total_correct = 0.
-                total_loss = 0.
-                total = 0.
+
                 with torch.no_grad():
+                    try:
+                        test_data, test_target = next(test_iter)
+                    except:
+                        test_iter = iter(test_loader)
+                        test_data, test_target = next(test_iter)
 
-                    for batch_idx_test, (test_data, test_target) in enumerate(test_loader):
-                    #try:
-                    #    test_data, test_target = next(test_iter)
-                    #except StopIteration:
-                    #    test_iter = iter(test_loader)
-                    #    test_data, test_target = next(test_iter)
-
-                        #import pdb
-                        #pdb.set_trace()
-                        test_data = test_data.to(device=self.config.device)
-                        test_target = test_target.to(device=self.config.device)
-                        test_output = net(test_data)
-                        test_loss = F.nll_loss(test_output, test_target)
-                        test_pred = torch.argmax(test_output, dim=1, keepdim=True)
-                        total_loss += test_loss
-                        total_correct += float(pred.eq(test_target.data.view_as(test_pred)).sum())
-                        total += float(test_target.shape[0])
-                        #test_accuracy = float(pred.eq(test_target.data.view_as(test_pred)).sum()) \
-                                    #/ float(test_target.shape[0])
-                test_accuracy = total_correct / total
-                test_loss = total_loss / (batch_idx_test + 1)
+                    test_data = test_data.to(device=self.config.device)
+                    test_target = test_target.to(device=self.config.device)
+                    test_output = net(test_data)
+                    test_loss = F.nll_loss(test_output, test_target)
+                    test_pred = torch.argmax(test_output, dim=1, keepdim=True)
+                    test_accuracy = float(test_pred.eq(test_target.data.view_as(test_pred)).sum()) / test_data.shape[0]
 
                 tb_logger.add_scalar('training_loss', loss, global_step=step)
                 tb_logger.add_scalar('training_accuracy', train_accuracy, global_step=step)
@@ -157,7 +151,7 @@ class ClassificationRunner(object):
                 if step % self.config.training.log_interval == 0:
                     logging.info(
                         "epoch: {}, batch: {}, training_loss: {}, train_accuracy: {}, test_loss: {}, test_accuracy: {}"
-                        .format(epoch,batch_idx, loss.item(), train_accuracy, test_loss.item(), test_accuracy))
+                            .format(epoch, batch_idx, loss.item(), train_accuracy, test_loss.item(), test_accuracy))
                 step += 1
 
             # scheduler.step(total_loss) #for palteau scheduler only
@@ -172,4 +166,3 @@ class ClassificationRunner(object):
                 torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
                                                 'checkpoint_epoch_{}.pth'.format(epoch + 1)))
                 torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))
-

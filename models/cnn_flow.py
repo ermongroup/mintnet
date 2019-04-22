@@ -288,7 +288,7 @@ class Net(nn.Module):
         image_size = config.data.image_size
 
         init_zero = False
-        init_zero_bound = 30
+        init_zero_bound = 100
 
         self.layers = nn.ModuleList()
         cur_layer = 0
