@@ -18,7 +18,7 @@ data:
 #  horizontal_flip: true
 
 model:
-  n_layers: 16
+  n_layers: 32
   latent_size: 32
   n_subsampling: 2
 

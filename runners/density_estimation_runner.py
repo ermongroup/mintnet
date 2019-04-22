@@ -21,7 +21,7 @@ class DensityEstimationRunner(object):
     def get_optimizer(self, parameters):
         if self.config.optim.optimizer == 'Adam':
             return optim.Adam(parameters, lr=self.config.optim.lr, weight_decay=self.config.optim.weight_decay,
-                              betas=(self.config.optim.beta1, 0.999))
+                              betas=(self.config.optim.beta1, 0.999), amsgrad=True)
         elif self.config.optim.optimizer == 'RMSProp':
             return optim.RMSprop(parameters, lr=self.config.optim.lr, weight_decay=self.config.optim.weight_decay)
         elif self.config.optim.optimizer == 'SGD':
