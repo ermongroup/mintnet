@@ -32,16 +32,29 @@ class ClassificationRunner(object):
     def train(self):
 
         if self.config.data.dataset == 'CIFAR10':
-            transform = transforms.Compose([
-                transforms.Resize(self.config.data.image_size),
-                transforms.ToTensor(),
-                transforms.Normalize(self.config.data.mean, self.config.data.std)
-            ])
+            if self.config.data.augmentation:
+                transform_train = transforms.Compose([
+                    transforms.RandomCrop(32, padding=4),
+                    transforms.RandomHorizontalFlip(),
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+                ])
 
+            else:
+                transform_train = transforms.Compose([
+                    transforms.Resize(self.config.data.image_size),
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+                ])
+
+            transform_test = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+            ])
             dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=True, download=True,
-                              transform=transform)
+                              transform=transform_train)
             test_dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=False, download=True,
-                                   transform=transform)
+                                   transform=transform_test)
 
         elif self.config.data.dataset == 'MNIST':
             transform = transforms.Compose([
