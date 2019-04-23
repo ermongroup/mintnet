@@ -21,10 +21,12 @@ model:
   n_layers: 12
   latent_size: 32
   n_subsampling: 2
-  act_norm: false
+  act_norm: true
 
 optim:
   optimizer: Adam
   lr: 0.001
   beta1: 0.9
   weight_decay: 0
+  amsgrad: true
+  adam_eps: 1e-4
