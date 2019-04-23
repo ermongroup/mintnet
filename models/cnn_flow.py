@@ -298,18 +298,22 @@ class Net(nn.Module):
         self.n_layers = config.model.n_layers
         subsampling_gap = self.n_layers // (config.model.n_subsampling + 1)
         subsampling_anchors = [subsampling_gap * (i + 1) for i in range(config.model.n_subsampling)]
+
+        latent_size = config.model.latent_size
+
         for layer_num in range(self.n_layers):
             if layer_num in subsampling_anchors:
                 self.layers.append(SpaceToDepth(2))
                 channel *= 2 * 2
                 image_size = int(image_size / 2)
+                latent_size //= 2 * 2
                 print('space to depth')
 
             if cur_layer > init_zero_bound:
                 init_zero = True
 
             shape = (channel, image_size, image_size)
-            self.layers.append(self._make_layer(shape, 1, config.model.latent_size, channel, init_zero, act_norm=config.model.act_norm))
+            self.layers.append(self._make_layer(shape, 1, latent_size, channel, init_zero, act_norm=config.model.act_norm))
             print('basic block')
 
 

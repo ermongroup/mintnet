@@ -29,4 +29,4 @@ optim:
   beta1: 0.9
   weight_decay: 0
   amsgrad: true
-  adam_eps: 1e-4
+  adam_eps: 0.0001

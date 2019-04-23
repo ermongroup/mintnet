@@ -19,14 +19,15 @@ data:
   num_classes: 10
 
 model:
-  n_layers: 2
-  latent_size: 32
-  n_subsampling: 0
-  act_norm: false
+  n_layers: 19
+  latent_size: 256
+  n_subsampling: 2
+  act_norm: true
 
 optim:
   optimizer: Adam
   lr: 0.001
   beta1: 0.9
   weight_decay: 0.000001
-  amsgrad: True
+  amsgrad: false
+  eps: 0.00000001

@@ -20,7 +20,8 @@ class ClassificationRunner(object):
     def get_optimizer(self, parameters):
         if self.config.optim.optimizer == 'Adam':
             return optim.Adam(parameters, lr=self.config.optim.lr, weight_decay=self.config.optim.weight_decay,
-                              betas=(self.config.optim.beta1, 0.999), amsgrad=self.config.optim.amsgrad)
+                              betas=(self.config.optim.beta1, 0.999), amsgrad=self.config.optim.amsgrad,
+                              eps=self.config.optim.eps)
         elif self.config.optim.optimizer == 'RMSProp':
             return optim.RMSprop(parameters, lr=self.config.optim.lr, weight_decay=self.config.optim.weight_decay)
         elif self.config.optim.optimizer == 'SGD':
@@ -102,7 +103,7 @@ class ClassificationRunner(object):
         # Train the model
         # scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[150], gamma=0.3)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, self.config.training.n_epochs,
-                                                               eta_min=1e-6, last_epoch=-1)
+                                                               eta_min=1e-4, last_epoch=-1)
         # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, min_lr=1e-08)
 
         for epoch in range(begin_epoch, self.config.training.n_epochs):

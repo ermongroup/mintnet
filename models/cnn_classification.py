@@ -118,6 +118,7 @@ class BasicBlock(nn.Module):
             pdb.set_trace()
             a = 1
 
+    '''
     def forward(self, x):
         masked_weight1 = (self.weight1 * (1. - self.center_mask1) + torch.abs(
             self.weight1) * self.center_mask1) * self.mask1
@@ -137,6 +138,50 @@ class BasicBlock(nn.Module):
         latent_output = F.conv2d(latent_output, masked_weight3, bias=self.bias3, padding=self.padding3, stride=1)
 
         t = torch.max(torch.abs(self.t), torch.tensor(1e-12, device=x.device))
+        output = latent_output + t * x
+
+        return output
+    '''
+
+    def forward(self, x):
+        ## more flexible diagonal
+        masked_weight1 = self.weight1 * self.mask1
+        masked_weight3 = self.weight3 * self.mask3
+        ## more flexible diagonal
+
+        # shape: B x latent_output . input_dim x img_size x img_size
+        latent_output = F.conv2d(x, masked_weight1, bias=self.bias1, padding=self.padding1, stride=1)
+        latent_output = self.non_linearity(latent_output)
+
+        ## more flexible diagonal
+        center1 = masked_weight1 * self.center_mask1  # shape: latent_dim.input_dim x input_dim x kernel x kernel
+        center3 = masked_weight3 * self.center_mask3  # shape: input_dim x latent_dim.input_dim x kernel x kernel
+
+        # shape: 1 x latent_dim x input_dim x input_dim x kernel x kernel
+        center1 = center1.view(self.latent_dim, self.input_dim, self.input_dim,
+                               center1.shape[-2], center1.shape[-1]).unsqueeze(0)
+        # shape: latent_dim x 1 x input_dim x input_dim x kernel x kernel
+        center3 = center3.view(self.input_dim, self.latent_dim, self.input_dim, center3.shape[-2],
+                               center3.shape[-1]).permute(1, 0, 2, 3, 4).unsqueeze(1)
+
+        sign_prods = torch.sign(center1) * torch.sign(center3)
+        center2 = self.weight2 * self.center_mask2  # shape: latent_dim.input_dim x latent_dim.input_dim x kernel x kernel
+        center2 = center2.view(self.latent_dim, self.input_dim, self.latent_dim, self.input_dim,
+                               center2.shape[-2], center2.shape[-1])
+
+        center2 = center2.permute(0, 2, 1, 3, 4, 5)
+        center2 = sign_prods * torch.abs(center2)
+        center2 = center2.permute(0, 2, 1, 3, 4, 5).contiguous().view_as(self.weight2)
+        masked_weight2 = (center2 * self.center_mask2 + self.weight2 * (1. - self.center_mask2)) * self.mask2
+        ## more flexible diagonal
+
+        latent_output = F.conv2d(latent_output, masked_weight2, bias=self.bias2, padding=self.padding2, stride=1)
+        latent_output = self.non_linearity(latent_output)
+
+        latent_output = F.conv2d(latent_output, masked_weight3, bias=self.bias3, padding=self.padding3, stride=1)
+
+        t = torch.max(torch.abs(self.t), torch.tensor(1e-12, device=x.device))
+
         output = latent_output + t * x
 
         return output
@@ -200,20 +245,22 @@ class Net(nn.Module):
         self.n_layers = config.model.n_layers
         subsampling_gap = self.n_layers // (config.model.n_subsampling + 1)
         subsampling_anchors = [subsampling_gap * (i + 1) for i in range(config.model.n_subsampling)]
-
+        latent_size = config.model.latent_size
 
         for layer_num in range(self.n_layers):
             if layer_num in subsampling_anchors:
                 self.layers.append(SpaceToDepth(2))
                 channel *= 2 * 2
                 image_size = int(image_size / 2)
+                latent_size //= 2 * 2
                 print('space to depth')
 
             if cur_layer > init_zero_bound:
                 init_zero = True
 
             shape = (channel, image_size, image_size)
-            self.layers.append(self._make_layer(shape, 1, config.model.latent_size, channel, init_zero, act_norm=config.model.act_norm))
+            self.layers.append(
+                self._make_layer(shape, 1, latent_size, channel, init_zero, act_norm=config.model.act_norm))
 
         if config.model.act_norm:
             self.pre_fc = nn.Sequential(
