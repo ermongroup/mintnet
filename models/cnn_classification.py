@@ -201,7 +201,6 @@ class Net(nn.Module):
         subsampling_gap = self.n_layers // (config.model.n_subsampling + 1)
         subsampling_anchors = [subsampling_gap * (i + 1) for i in range(config.model.n_subsampling)]
 
-        self.fc = nn.Linear(self.inplanes * config.data.image_size * config.data.image_size, config.data.num_classes)
 
         for layer_num in range(self.n_layers):
             if layer_num in subsampling_anchors:
@@ -215,7 +214,18 @@ class Net(nn.Module):
 
             shape = (channel, image_size, image_size)
             self.layers.append(self._make_layer(shape, 1, config.model.latent_size, channel, init_zero, act_norm=config.model.act_norm))
-            print('basic block')
+
+        if config.model.act_norm:
+            self.pre_fc = nn.Sequential(
+                ActNorm(shape),
+                nn.ELU()
+            )
+        else:
+            self.pre_fc = nn.ELU()
+
+        self.fc = nn.Linear(shape[0], config.data.num_classes)
+
+        print('basic block')
 
     def _make_layer(self, shape, block_num, latent_dim, input_dim, init_zero, act_norm=False):
         layers = []
@@ -237,6 +247,10 @@ class Net(nn.Module):
         for layer_num, layer in enumerate(self.layers):
             x = layer(x)
 
+        x = self.pre_fc(x)
+        # mean pooling
+        x = x.mean(dim=(2, 3))
         x = x.reshape(x.shape[0], -1)
         x = self.fc(x)
+
         return F.log_softmax(x, dim=1)
