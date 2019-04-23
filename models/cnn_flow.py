@@ -57,12 +57,14 @@ class ActNorm(nn.Module):
         self.bias = nn.Parameter(torch.zeros(num_inputs)).to(config.device)
         self.initialized = False
 
-    def forward(self, inputs, log_det):
-        if self.initialized == False:
+    def forward(self, x):
+        inputs = x[0]
+        log_det = x[1]
+        if self.initialized is False:
             self.weight.data.copy_(1 / (inputs.std(0) + 1e-12))
             self.bias.data.copy_(inputs.mean(0))
             self.initialized = True
-        return (inputs - self.bias) * self.weight, log_det + inputs.size(0) * torch.sum(
+        return (inputs - self.bias) * self.weight, log_det + torch.sum(
             torch.log(torch.abs(self.weight)))
 
 
@@ -307,8 +309,12 @@ class Net(nn.Module):
                 init_zero = True
 
             shape = (channel, image_size, image_size)
+            self.layers.append(ActNorm(config, (channel, image_size, image_size)))
+            print('ActNorm')
+            
             self.layers.append(self._make_layer(shape, 1, config.model.latent_size, channel, init_zero))
             print('basic block')
+
 
     def _make_layer(self, shape, block_num, latent_dim, input_dim, init_zero):
         layers = []
