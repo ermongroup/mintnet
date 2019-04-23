@@ -6,6 +6,7 @@ import torch.nn.init as init
 import numpy as np
 import math
 from .utils import *
+import tqdm
 
 
 class ActNorm(nn.Module):
@@ -21,12 +22,12 @@ class ActNorm(nn.Module):
         self.initialized = False
 
     def forward(self, x):
-        inputs = x[0]
-        log_det = x[1]
+        inputs = x
         if self.initialized is False:
-            self.weight.data.copy_(1 / (inputs.std(0) + 1e-12))
+            self.weight.data.copy_(1 / (inputs.std(0) + 1e-5))
             self.bias.data.copy_(inputs.mean(0))
             self.initialized = True
+
         return (inputs - self.bias) * self.weight
 
 
@@ -150,6 +151,7 @@ class BasicBlock(nn.Module):
         ## more flexible diagonal
 
         # shape: B x latent_output . input_dim x img_size x img_size
+
         latent_output = F.conv2d(x, masked_weight1, bias=self.bias1, padding=self.padding1, stride=1)
         latent_output = self.non_linearity(latent_output)
 
@@ -261,6 +263,7 @@ class Net(nn.Module):
             shape = (channel, image_size, image_size)
             self.layers.append(
                 self._make_layer(shape, 1, latent_size, channel, init_zero, act_norm=config.model.act_norm))
+            print('basic block')
 
         if config.model.act_norm:
             self.pre_fc = nn.Sequential(
@@ -271,8 +274,6 @@ class Net(nn.Module):
             self.pre_fc = nn.ELU()
 
         self.fc = nn.Linear(shape[0], config.data.num_classes)
-
-        print('basic block')
 
     def _make_layer(self, shape, block_num, latent_dim, input_dim, init_zero, act_norm=False):
         layers = []
@@ -289,7 +290,8 @@ class Net(nn.Module):
 
     def forward(self, x):
         # pad to 16 channels
-        x = torch.cat([x, torch.zeros(x.shape[0], 16 - x.shape[1], x.shape[-2], x.shape[-1], device=x.device)], dim=1)
+        x_copy = x.repeat(1, 16 // self.config.data.channels, 1, 1)
+        x = torch.cat([x, x_copy[:, :16 - self.config.data.channels, ...]], dim=1)
 
         for layer_num, layer in enumerate(self.layers):
             x = layer(x)
