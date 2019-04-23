@@ -51,10 +51,10 @@ class ActNorm(nn.Module):
     (https://arxiv.org/abs/1807.03039).
     """
 
-    def __init__(self, config, num_inputs):
+    def __init__(self, shape):
         super(ActNorm, self).__init__()
-        self.weight = nn.Parameter(torch.ones(num_inputs)).to(config.device)
-        self.bias = nn.Parameter(torch.zeros(num_inputs)).to(config.device)
+        self.weight = nn.Parameter(torch.ones(shape))
+        self.bias = nn.Parameter(torch.zeros(shape))
         self.initialized = False
 
     def forward(self, x):
@@ -309,18 +309,19 @@ class Net(nn.Module):
                 init_zero = True
 
             shape = (channel, image_size, image_size)
-            self.layers.append(ActNorm(config, (channel, image_size, image_size)))
-            print('ActNorm')
-            
-            self.layers.append(self._make_layer(shape, 1, config.model.latent_size, channel, init_zero))
+            self.layers.append(self._make_layer(shape, 1, config.model.latent_size, channel, init_zero, act_norm=config.model.act_norm))
             print('basic block')
 
 
-    def _make_layer(self, shape, block_num, latent_dim, input_dim, init_zero):
+    def _make_layer(self, shape, block_num, latent_dim, input_dim, init_zero, act_norm=False):
         layers = []
         for i in range(0, block_num):
+            if act_norm:
+                layers.append(ActNorm(shape))
             layers.append(BasicBlock(self.config, shape, latent_dim, type='A', input_dim=input_dim,
                                      init_zero=init_zero))
+            if act_norm:
+                layers.append(ActNorm(shape))
             layers.append(BasicBlock(self.config, shape, latent_dim, type='B', input_dim=input_dim,
                                      init_zero=init_zero))
         return nn.Sequential(*layers)

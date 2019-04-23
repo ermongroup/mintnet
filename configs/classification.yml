@@ -5,13 +5,12 @@ training:
   snapshot_interval: 10
 
 data:
-#  dataset: MNIST
-#  mean: !!python/tuple [0.1307,]
-#  std: !!python/tuple [0.3081,]
-#  image_size: 28
-#  channels: 1
-#  num_classes: 10
-  
+  #  dataset: MNIST
+  #  mean: !!python/tuple [0.1307,]
+  #  std: !!python/tuple [0.3081,]
+  #  image_size: 28
+  #  channels: 1
+  #  num_classes: 10
   dataset: CIFAR10
   mean: !!python/tuple [0.4914, 0.4822, 0.4465]
   std: !!python/tuple [0.2023, 0.1994, 0.2010]
@@ -23,6 +22,7 @@ model:
   n_layers: 2
   latent_size: 32
   n_subsampling: 0
+  act_norm: false
 
 optim:
   optimizer: Adam

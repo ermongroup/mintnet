@@ -21,6 +21,7 @@ model:
   n_layers: 12
   latent_size: 32
   n_subsampling: 2
+  act_norm: false
 
 optim:
   optimizer: Adam
