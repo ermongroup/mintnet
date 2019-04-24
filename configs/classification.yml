@@ -1,6 +1,6 @@
 training:
-  n_epochs: 500
-  batch_size: 64
+  n_epochs: 200
+  batch_size: 128
   log_interval: 10
   snapshot_interval: 10
 
@@ -17,15 +17,19 @@ data:
 
 model:
   n_layers: 19
-  latent_size: 16
+  latent_size: 1
   n_subsampling: 2
   act_norm: false
 
 optim:
   optimizer: Adam
-  lr: 0.0001
+  lr: 0.001
   beta1: 0.9
-  weight_decay: 0.000001
+  weight_decay: 0.0001
   amsgrad: true
-#  eps: 0.00000001
   eps: 0.0001
+
+  # Daniel hyperparameters
+#  optimizer: SGD
+#  lr: 0.1
+#  weight_decay: 0.0001

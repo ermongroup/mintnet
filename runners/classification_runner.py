@@ -10,6 +10,7 @@ import torch.nn.functional as F
 import numpy as np
 import torch.optim as optim
 import os
+from models.resnet_classification import ResNet
 
 
 class ClassificationRunner(object):
@@ -93,6 +94,7 @@ class ClassificationRunner(object):
         test_iter = iter(test_loader)
 
         net = Net(self.config).to(self.config.device)
+        # net = ResNet(self.config).to(self.config.device)
         net = torch.nn.DataParallel(net)
         optimizer = self.get_optimizer(net.parameters())
 
@@ -116,7 +118,7 @@ class ClassificationRunner(object):
         # Train the model
         # scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[150], gamma=0.3)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, self.config.training.n_epochs,
-                                                               eta_min=1e-4, last_epoch=-1)
+                                                               eta_min=1e-7, last_epoch=-1)
         # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, min_lr=1e-08)
 
         for epoch in range(begin_epoch, self.config.training.n_epochs):

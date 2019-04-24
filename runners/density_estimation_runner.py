@@ -241,6 +241,7 @@ class DensityEstimationRunner(object):
 
         def flow_loss(u, log_jacob, size_average=True):
             log_probs = (-0.5 * u.pow(2) - 0.5 * np.log(2 * np.pi)).sum()
+            log_jacob = log_jacob.sum()
             loss = -(log_probs + log_jacob)
 
             if size_average:

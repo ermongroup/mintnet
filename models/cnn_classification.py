@@ -36,9 +36,9 @@ class BasicBlock(nn.Module):
     # Input_dim should be 1(grey scale image) or 3(RGB image), or other dimension if use SpaceToDepth
 
     def init_conv_weight(self, weight):
-        # init.kaiming_uniform_(weight, math.sqrt(5.))
+        init.kaiming_uniform_(weight, math.sqrt(5.))
         # init.kaiming_normal_(weight, math.sqrt(5.))
-        init.xavier_normal_(weight, 0.1)
+        # init.xavier_normal_(weight, 0.1)
 
     def init_conv_bias(self, weight, bias):
         fan_in, _ = init._calculate_fan_in_and_fan_out(weight)
@@ -254,7 +254,7 @@ class Net(nn.Module):
                 self.layers.append(SpaceToDepth(2))
                 channel *= 2 * 2
                 image_size = int(image_size / 2)
-                latent_size //= 2 * 2
+                # Note: do not do latent_size //= 2 * 2 for classification
                 print('space to depth')
 
             if cur_layer > init_zero_bound:
@@ -292,6 +292,8 @@ class Net(nn.Module):
         # pad to 16 channels
         x_copy = x.repeat(1, 16 // self.config.data.channels, 1, 1)
         x = torch.cat([x, x_copy[:, :16 - self.config.data.channels, ...]], dim=1)
+        # padding = torch.zeros(x.shape[0], 16 - x.shape[1], x.shape[-2], x.shape[-1], device=x.device)
+        # x = torch.cat([x, padding], dim=1)
 
         for layer_num, layer in enumerate(self.layers):
             x = layer(x)

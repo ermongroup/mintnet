@@ -61,7 +61,7 @@ class ActNorm(nn.Module):
         inputs = x[0]
         log_det = x[1]
         if self.initialized is False:
-            self.weight.data.copy_(1 / (inputs.std(0) + 1e-12))
+            self.weight.data.copy_(1 / (inputs.std(0) + 1e-5))
             self.bias.data.copy_(inputs.mean(0))
             self.initialized = True
         return (inputs - self.bias) * self.weight, log_det + torch.sum(
