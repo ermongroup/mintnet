@@ -11,6 +11,9 @@ import torch.nn.functional as F
 import numpy as np
 import torch.optim as optim
 import os
+from models.cnn_flow import DataParallelWithSampling
+from torchvision.utils import save_image, make_grid
+import torch.autograd as autograd
 
 
 class DensityEstimationRunner(object):
@@ -37,6 +40,12 @@ class DensityEstimationRunner(object):
         lambd = self.config.data.lambda_logit
         image = lambd + (1 - 2 * lambd) * image
         return torch.log(image) - torch.log1p(-image)
+
+    def sigmoid_transform(self, samples):
+        lambd = self.config.data.lambda_logit
+        samples = torch.sigmoid(samples)
+        samples = (samples - lambd) / (1 - 2 * lambd)
+        return samples
 
     def compute_grad_norm(self, model):
         # total_norm = 0.
@@ -93,7 +102,7 @@ class DensityEstimationRunner(object):
         test_iter = iter(test_loader)
 
         net = Net(self.config).to(self.config.device)
-        net = torch.nn.DataParallel(net)
+        net = DataParallelWithSampling(net)
 
         optimizer = self.get_optimizer(net.parameters())
 
@@ -125,7 +134,8 @@ class DensityEstimationRunner(object):
             begin_epoch = 0
 
         # Train the model
-        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[250], gamma=0.1)
+        # scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[250], gamma=0.1)
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, self.config.training.n_epochs, eta_min=1e-5)
         for epoch in range(begin_epoch, self.config.training.n_epochs):
             scheduler.step()
             for batch_idx, (data, _) in enumerate(dataloader):
@@ -197,6 +207,32 @@ class DensityEstimationRunner(object):
                                                 'checkpoint_epoch_{}.pth'.format(epoch + 1)))
                 torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))
 
+    def Langevin_dynamics(self, x_mod, net, n_steps=200, step_lr=0.00005):
+        images = []
+
+        def log_prob(x):
+            u, log_jacob = net(x)
+            log_probs = (-0.5 * u.pow(2) - 0.5 * np.log(2 * np.pi)).sum()
+            log_jacob = log_jacob.sum()
+            loss = (log_probs + log_jacob)
+            return loss
+
+        def score(x):
+            with torch.enable_grad():
+                x.requires_grad_(True)
+                return autograd.grad(log_prob(x), x)[0]
+
+        with torch.no_grad():
+            for _ in range(n_steps):
+                images.append(torch.clamp(x_mod, 0.0, 1.0))
+                noise = torch.randn_like(x_mod) * np.sqrt(step_lr * 2)
+                grad = score(x_mod)
+                x_mod = x_mod + step_lr * grad + noise
+                x_mod = x_mod
+                print("modulus of grad components: mean {}, max {}".format(grad.abs().mean(), grad.abs().max()))
+
+            return images
+
     def test(self):
         transform = transforms.Compose([
             transforms.Resize(self.config.data.image_size),
@@ -236,7 +272,7 @@ class DensityEstimationRunner(object):
                                  num_workers=4, drop_last=False)
 
         net = Net(self.config).to(self.config.device)
-        net = torch.nn.DataParallel(net)
+        net = DataParallelWithSampling(net)
         optimizer = self.get_optimizer(net.parameters())
 
         def flow_loss(u, log_jacob, size_average=True):
@@ -263,6 +299,17 @@ class DensityEstimationRunner(object):
         total_loss = 0
         total_bpd = 0
         total_n_data = 0
+
+        logging.info("Generating samples")
+        z = torch.randn(100, self.config.data.channels * self.config.data.image_size * self.config.data.image_size,
+                        device=self.config.device)
+        samples = net.sampling(z)
+        samples = self.sigmoid_transform(samples)
+        samples = make_grid(samples, 10)
+        save_image(samples, 'samples.png')
+
+        logging.info("Calculating overall bpd")
+
         with torch.no_grad():
             for batch_idx, (test_data, _) in enumerate(test_loader):
                 test_data = test_data.to(self.config.device) * 255. / 256.

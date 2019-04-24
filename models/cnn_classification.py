@@ -112,6 +112,7 @@ class BasicBlock(nn.Module):
         self.non_linearity = F.elu
 
         self.t = nn.Parameter(torch.ones(1, *shape))
+        self.shape = shape
 
     def check_nan(self, inputs):
         if torch.isnan(inputs).any():
