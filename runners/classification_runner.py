@@ -31,7 +31,6 @@ class ClassificationRunner(object):
             raise NotImplementedError('Optimizer {} not understood.'.format(self.config.optim.optimizer))
 
     def train(self):
-
         if self.config.data.dataset == 'CIFAR10':
             if self.config.data.augmentation:
                 transform_train = transforms.Compose([
@@ -182,3 +181,64 @@ class ClassificationRunner(object):
                 torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
                                                 'checkpoint_epoch_{}.pth'.format(epoch + 1)))
                 torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))
+
+
+    def test(self):
+        if self.config.data.dataset == 'CIFAR10':
+            transform_test = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+            ])
+            test_dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=False, download=True,
+                                   transform=transform_test)
+
+        elif self.config.data.dataset == 'MNIST':
+            transform = transforms.Compose([
+                transforms.Resize(self.config.data.image_size),
+                transforms.ToTensor()
+            ])
+
+            test_dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist_test'), train=False, download=True,
+                                 transform=transform)
+
+        elif self.config.data.dataset == 'CELEBA':
+            dataset = ImageFolder(root=os.path.join(self.args.run, 'datasets', 'celeba'),
+                                  transform=transforms.Compose([
+                                      transforms.CenterCrop(140),
+                                      transforms.Resize(self.config.data.image_size),
+                                      transforms.ToTensor(),
+                                      transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+                                  ]))
+            num_items = len(dataset)
+            indices = list(range(num_items))
+            random_state = np.random.get_state()
+            np.random.seed(2019)
+            np.random.shuffle(indices)
+            np.random.set_state(random_state)
+            train_indices, test_indices = indices[:int(num_items * 0.7)], indices[
+                                                                          int(num_items * 0.7):int(num_items * 0.8)]
+            test_dataset = Subset(dataset, test_indices)
+
+        test_loader = DataLoader(test_dataset, batch_size=self.config.training.batch_size, shuffle=False,
+                                 num_workers=4, drop_last=False)
+
+        # net = Net(self.config).to(self.config.device)
+        net = ResNet(self.config).to(self.config.device)
+        net = torch.nn.DataParallel(net)
+        states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'),
+                            map_location=self.config.device)
+        net.load_state_dict(states[0])
+
+        net.eval()
+        n_data = 0
+        n_correct = 0
+        with torch.no_grad():
+            for batch_idx, (data, target) in tqdm.tqdm(enumerate(test_loader), total=len(test_loader)):
+                data = data.to(device=self.config.device)
+                target = target.to(device=self.config.device)
+                output = net(data)
+                pred = torch.argmax(output, dim=1, keepdim=True)
+                n_data += data.shape[0]
+                n_correct += (pred.view(-1) == target).sum()
+
+            logging.info("Total accuracy: {}".format(n_correct.float() / n_data))

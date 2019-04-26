@@ -29,6 +29,7 @@ model:
   latent_size: 85
   n_subsampling: 2
   act_norm: false
+  batch_norm: true
   rgb_last: true
   zero_init_start: 12
 

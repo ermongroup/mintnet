@@ -134,8 +134,8 @@ class DensityEstimationRunner(object):
             begin_epoch = 0
 
         # Train the model
-        # scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50], gamma=0.1)
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, self.config.training.n_epochs, eta_min=0.)
+        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50], gamma=0.1)
+        # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, self.config.training.n_epochs, eta_min=0.)
         for epoch in range(begin_epoch, self.config.training.n_epochs):
             scheduler.step()
             for batch_idx, (data, _) in enumerate(dataloader):

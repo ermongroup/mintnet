@@ -263,7 +263,8 @@ class Net(nn.Module):
 
             shape = (channel, image_size, image_size)
             self.layers.append(
-                self._make_layer(shape, 1, latent_size, channel, init_zero, act_norm=config.model.act_norm))
+                self._make_layer(shape, 1, latent_size, channel, init_zero, act_norm=config.model.act_norm,
+                                 batch_norm=config.model.batch_norm))
             print('basic block')
 
         if config.model.act_norm:
@@ -276,15 +277,19 @@ class Net(nn.Module):
 
         self.fc = nn.Linear(shape[0], config.data.num_classes)
 
-    def _make_layer(self, shape, block_num, latent_dim, input_dim, init_zero, act_norm=False):
+    def _make_layer(self, shape, block_num, latent_dim, input_dim, init_zero, act_norm=False, batch_norm=False):
         layers = []
         for i in range(0, block_num):
             if act_norm:
                 layers.append(ActNorm(shape))
+            if batch_norm:
+                layers.append(nn.BatchNorm2d(shape[0]))
             layers.append(BasicBlock(self.config, shape, latent_dim, type='A', input_dim=input_dim,
                                      init_zero=init_zero))
             if act_norm:
                 layers.append(ActNorm(shape))
+            if batch_norm:
+                layers.append(nn.BatchNorm2d(shape[0]))
             layers.append(BasicBlock(self.config, shape, latent_dim, type='B', input_dim=input_dim,
                                      init_zero=init_zero))
         return nn.Sequential(*layers)

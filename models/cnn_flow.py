@@ -169,6 +169,44 @@ class ActNorm(nn.Module):
             return z / self.weight + self.bias
 
 
+class FlowBatchNorm2d(nn.BatchNorm2d):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def forward(self, x):
+        input = x[0]
+        log_det = x[1]
+        self._check_input_dim(input)
+
+        exponential_average_factor = 0.0
+
+        if self.training and self.track_running_stats:
+            # TODO: if statement only here to tell the jit to skip emitting this when it is None
+            if self.num_batches_tracked is not None:
+                self.num_batches_tracked += 1
+                if self.momentum is None:  # use cumulative moving average
+                    exponential_average_factor = 1.0 / float(self.num_batches_tracked)
+                else:  # use exponential moving average
+                    exponential_average_factor = self.momentum
+
+            var = torch.var(input.permute(1, 0, 2, 3).view(self.num_features, -1), dim=-1)
+            std = torch.sqrt(var + self.eps)[None, :, None, None].detach()
+            mean = torch.mean(input, dim=(0, 2, 3), keepdim=True).detach()
+            with torch.no_grad():
+                self.running_mean = (1. - exponential_average_factor) * self.running_mean + exponential_average_factor * mean.squeeze()
+                self.running_var = (1. - exponential_average_factor) * self.running_var + exponential_average_factor * var
+            return (input - mean) / std * self.weight[None, :, None, None] + self.bias[None, :, None, None], \
+                   log_det + torch.sum(torch.log(torch.abs(self.weight / std.squeeze())))
+
+        elif not self.training:
+            std = torch.sqrt(self.running_var + self.eps)[None, :, None, None].detach()
+            return (input - self.running_mean[None, :, None, None].detach()) / std * self.weight[None, :, None,
+                                                                            None] + self.bias[None, :, None, None], \
+                   log_det + torch.sum(torch.log(torch.abs(self.weight / std.squeeze())))
+        else:
+            raise NotImplementedError("Argument combination not supported!")
+
+
 # DO NOT FORGET ACTNORM!!!
 class BasicBlock(nn.Module):
     # Input_dim should be 1(grey scale image) or 3(RGB image), or other dimension if use SpaceToDepth
@@ -223,8 +261,8 @@ class BasicBlock(nn.Module):
             torch.zeros(input_dim)
         )
         if not init_zero:
-                self.init_conv_weight(self.weight3)
-                self.init_conv_bias(self.weight3, self.bias3)
+            self.init_conv_weight(self.weight3)
+            self.init_conv_bias(self.weight3, self.bias3)
 
         # Define masks
 
@@ -562,20 +600,25 @@ class Net(nn.Module):
 
             shape = (channel, image_size, image_size)
             self.layers.append(
-                self._make_layer(shape, 1, latent_size, channel, init_zero, act_norm=config.model.act_norm))
+                self._make_layer(shape, 1, latent_size, channel, init_zero, act_norm=config.model.act_norm,
+                                 batch_norm=config.model.batch_norm))
             print('basic block')
 
         self.sampling_shape = shape
 
-    def _make_layer(self, shape, block_num, latent_dim, input_dim, init_zero, act_norm=False):
+    def _make_layer(self, shape, block_num, latent_dim, input_dim, init_zero, act_norm=False, batch_norm=False):
         layers = []
         for i in range(0, block_num):
             if act_norm:
                 layers.append(ActNorm(shape))
+            if batch_norm:
+                layers.append(FlowBatchNorm2d(shape[0]))
             layers.append(BasicBlock(self.config, shape, latent_dim, type='A', input_dim=input_dim,
                                      init_zero=init_zero))
             if act_norm:
                 layers.append(ActNorm(shape))
+            if batch_norm:
+                layers.append(FlowBatchNorm2d(shape[0]))
             layers.append(BasicBlock(self.config, shape, latent_dim, type='B', input_dim=input_dim,
                                      init_zero=init_zero))
         return SequentialWithSampling(*layers)
