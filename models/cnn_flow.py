@@ -174,9 +174,9 @@ class BasicBlock(nn.Module):
     # Input_dim should be 1(grey scale image) or 3(RGB image), or other dimension if use SpaceToDepth
 
     def init_conv_weight(self, weight):
-        init.kaiming_uniform_(weight, math.sqrt(5.))
+        # init.kaiming_uniform_(weight, math.sqrt(5.))
         # init.kaiming_normal_(weight, math.sqrt(5.))
-        # init.xavier_normal_(weight, 0.01)
+        init.xavier_normal_(weight, 0.005)
 
     def init_conv_bias(self, weight, bias):
         fan_in, _ = init._calculate_fan_in_and_fan_out(weight)
@@ -198,8 +198,9 @@ class BasicBlock(nn.Module):
             torch.zeros(input_dim * latent_dim)
         )
 
-        self.init_conv_weight(self.weight1)
-        self.init_conv_bias(self.weight1, self.bias1)
+        if not init_zero:
+            self.init_conv_weight(self.weight1)
+            self.init_conv_bias(self.weight1, self.bias1)
 
         self.weight2 = nn.Parameter(
             torch.randn(input_dim * latent_dim, input_dim * latent_dim, kernel2, kernel2) * 1e-5
@@ -221,9 +222,9 @@ class BasicBlock(nn.Module):
         self.bias3 = nn.Parameter(
             torch.zeros(input_dim)
         )
-
-        self.init_conv_weight(self.weight3)
-        self.init_conv_bias(self.weight3, self.bias3)
+        if not init_zero:
+                self.init_conv_weight(self.weight3)
+                self.init_conv_bias(self.weight3, self.bias3)
 
         # Define masks
 
@@ -237,13 +238,13 @@ class BasicBlock(nn.Module):
         self.center_mask3 = nn.Parameter(torch.zeros_like(self.weight3), requires_grad=False)
 
         for i in range(latent_dim):
-            fill_mask(self.mask1[i * input_dim: (i + 1) * input_dim, ...], type=type)
+            fill_mask(self.mask1[i * input_dim: (i + 1) * input_dim, ...], type=type, rgb_last=config.model.rgb_last)
             fill_center_mask(self.center_mask1[i * input_dim: (i + 1) * input_dim, ...])
-            fill_mask(self.mask3[:, i * input_dim: (i + 1) * input_dim, ...], type=type)
+            fill_mask(self.mask3[:, i * input_dim: (i + 1) * input_dim, ...], type=type, rgb_last=config.model.rgb_last)
             fill_center_mask(self.center_mask3[:, i * input_dim: (i + 1) * input_dim, ...])
             for j in range(latent_dim):
                 fill_mask(self.mask2[i * input_dim: (i + 1) * input_dim, j * input_dim: (j + 1) * input_dim, ...],
-                          type=type)
+                          type=type, rgb_last=config.model.rgb_last)
                 fill_center_mask(
                     self.center_mask2[i * input_dim: (i + 1) * input_dim, j * input_dim: (j + 1) * input_dim, ...])
 
@@ -426,7 +427,11 @@ class BasicBlock(nn.Module):
 
             if self.type == 'A':
                 print("type A")
-                for i, j, c in tqdm(product(range(self.shape[-2]), range(self.shape[-1]), range(self.shape[0]))):
+                if self.config.model.rgb_last:
+                    iterator = tqdm(product(range(self.shape[0]), range(self.shape[-2]), range(self.shape[-1])))
+                else:
+                    iterator = tqdm(product(range(self.shape[-2]), range(self.shape[-1]), range(self.shape[0])))
+                for i, j, c in iterator:
                     x[:, c, i, j] = z[:, c, i, j] / shared_t[0, c, i, j]
                     for _ in range(self.config.model.n_iters):
                         output, grad = value_and_grad(x)
@@ -435,8 +440,13 @@ class BasicBlock(nn.Module):
 
             elif self.type == 'B':
                 print("type B")
-                for i, j, c in tqdm(product(reversed(range(self.shape[-2])), reversed(range(self.shape[-1])),
-                                            reversed(range(self.shape[0])))):
+                if self.config.mode.rgb_last:
+                    iterator = tqdm(product(reversed(range(self.shape[0])), reversed(range(self.shape[-2])),
+                                            reversed(range(self.shape[-1]))))
+                else:
+                    iterator = tqdm(product(reversed(range(self.shape[-2])), reversed(range(self.shape[-1])),
+                                            reversed(range(self.shape[0]))))
+                for i, j, c in iterator:
                     x[:, c, i, j] = z[:, c, i, j] / shared_t[0, c, i, j]
                     for _ in range(self.config.model.n_iters):
                         output, grad = value_and_grad(x)
@@ -528,7 +538,7 @@ class Net(nn.Module):
         image_size = config.data.image_size
 
         init_zero = False
-        init_zero_bound = 100
+        init_zero_bound = config.model.zero_init_start
 
         self.layers = nn.ModuleList()
         cur_layer = 0

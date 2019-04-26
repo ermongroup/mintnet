@@ -105,7 +105,7 @@ class ClassificationRunner(object):
         tb_logger = tensorboardX.SummaryWriter(log_dir=tb_path)
 
         if self.args.resume_training:
-            states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint_epoch_90.pth'),
+            states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'),
                                 map_location=self.config.device)
             net.load_state_dict(states[0])
             optimizer.load_state_dict(states[1])
@@ -118,7 +118,7 @@ class ClassificationRunner(object):
         # Train the model
         # scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[150], gamma=0.3)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, self.config.training.n_epochs,
-                                                               eta_min=1e-7, last_epoch=-1)
+                                                               eta_min=0., last_epoch=-1)
         # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, min_lr=1e-08)
 
         for epoch in range(begin_epoch, self.config.training.n_epochs):

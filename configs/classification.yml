@@ -20,6 +20,8 @@ model:
   latent_size: 1
   n_subsampling: 2
   act_norm: false
+  rgb_last: true
+  pad_zero: true
 
 optim:
   optimizer: Adam

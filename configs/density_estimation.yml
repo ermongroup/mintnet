@@ -1,37 +1,39 @@
 training:
-  n_epochs: 300
+  n_epochs: 100
   batch_size: 32
-  log_interval: 1
+  log_interval: 10
   snapshot_interval: 10
 
 data:
-  dataset: MNIST
-  lambda_logit: 0.000001
-  image_size: 28
-  channels: 1
-  horizontal_flip: false
-#  dataset: CIFAR10
-#  image_size: 32
-#  lambda_logit: 0.05
-#  channels: 3
-#  horizontal_flip: false
+  #  dataset: MNIST
+  #  lambda_logit: 0.000001
+  #  image_size: 28
+  #  channels: 1
+  #  horizontal_flip: false
+  dataset: CIFAR10
+  image_size: 32
+  lambda_logit: 0.05
+  channels: 3
+  horizontal_flip: true
 
 model:
   ## mnist model
-  n_layers: 12
-  latent_size: 64
-  n_subsampling: 2
-  act_norm: false
-
-  ## cifar10 model
-  #  n_layers: 16
-  #  latent_size: 96
+  #  n_layers: 12
+  #  latent_size: 32
   #  n_subsampling: 2
   #  act_norm: false
+  #  rgb_last: true
+  #
+  ## cifar10 model
+  n_layers: 16
+  latent_size: 85
+  n_subsampling: 2
+  act_norm: false
+  rgb_last: true
+  zero_init_start: 12
 
   # for sampling
   n_iters: 10
-
 
 optim:
   optimizer: Adam
