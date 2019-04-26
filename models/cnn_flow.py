@@ -189,7 +189,7 @@ class FlowBatchNorm2d(nn.BatchNorm2d):
                 else:  # use exponential moving average
                     exponential_average_factor = self.momentum
 
-            var = torch.var(input.permute(1, 0, 2, 3).view(self.num_features, -1), dim=-1)
+            var = torch.var(input.permute(1, 0, 2, 3).contigous().view(self.num_features, -1), dim=-1)
             std = torch.sqrt(var + self.eps)[None, :, None, None].detach()
             mean = torch.mean(input, dim=(0, 2, 3), keepdim=True).detach()
             with torch.no_grad():
