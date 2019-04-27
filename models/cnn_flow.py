@@ -189,20 +189,27 @@ class FlowBatchNorm2d(nn.BatchNorm2d):
                 else:  # use exponential moving average
                     exponential_average_factor = self.momentum
 
-            var = torch.var(input.permute(1, 0, 2, 3).contigous().view(self.num_features, -1), dim=-1)
+            var = torch.var(input.permute(1, 0, 2, 3).contiguous().view(self.num_features, -1), dim=-1)
             std = torch.sqrt(var + self.eps)[None, :, None, None].detach()
             mean = torch.mean(input, dim=(0, 2, 3), keepdim=True).detach()
+            weight = self.weight[None, :, None, None]
+            bias = self.bias[None, :, None, None]
+            diag = (weight / std).expand_as(input)
             with torch.no_grad():
                 self.running_mean = (1. - exponential_average_factor) * self.running_mean + exponential_average_factor * mean.squeeze()
                 self.running_var = (1. - exponential_average_factor) * self.running_var + exponential_average_factor * var
-            return (input - mean) / std * self.weight[None, :, None, None] + self.bias[None, :, None, None], \
-                   log_det + torch.sum(torch.log(torch.abs(self.weight / std.squeeze())))
+
+            return (input - mean) / std * weight + bias, \
+                   log_det + torch.sum(torch.log(torch.abs(diag)), dim=(1, 2, 3))
 
         elif not self.training:
             std = torch.sqrt(self.running_var + self.eps)[None, :, None, None].detach()
-            return (input - self.running_mean[None, :, None, None].detach()) / std * self.weight[None, :, None,
-                                                                            None] + self.bias[None, :, None, None], \
-                   log_det + torch.sum(torch.log(torch.abs(self.weight / std.squeeze())))
+            running_mean = self.running_mean[None, :, None, None].detach()
+            weight = self.weight[None, :, None, None]
+            bias = self.bias[None, :, None, None]
+            diag = (weight / std).expand_as(input)
+            return (input - running_mean) / std * weight + bias, \
+                   log_det + torch.sum(torch.log(torch.abs(diag)), dim=(1, 2, 3))
         else:
             raise NotImplementedError("Argument combination not supported!")
 

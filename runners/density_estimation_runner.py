@@ -121,6 +121,9 @@ class DensityEstimationRunner(object):
                 loss /= u.size(0)
             return loss
 
+        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50], gamma=0.1)
+        # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, self.config.training.n_epochs, eta_min=0.)
+
         if self.args.resume_training:
             states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'),
                                 map_location=self.config.device)
@@ -129,13 +132,13 @@ class DensityEstimationRunner(object):
             optimizer.load_state_dict(states[1])
             begin_epoch = states[2]
             step = states[3]
+            scheduler.load_state_dict(states[4])
         else:
             step = 0
             begin_epoch = 0
 
         # Train the model
-        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50], gamma=0.1)
-        # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, self.config.training.n_epochs, eta_min=0.)
+
         for epoch in range(begin_epoch, self.config.training.n_epochs):
             scheduler.step()
             for batch_idx, (data, _) in enumerate(dataloader):
@@ -201,7 +204,8 @@ class DensityEstimationRunner(object):
                     net.state_dict(),
                     optimizer.state_dict(),
                     epoch + 1,
-                    step
+                    step,
+                    scheduler.state_dict()
                 ]
                 torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
                                                 'checkpoint_epoch_{}.pth'.format(epoch + 1)))
