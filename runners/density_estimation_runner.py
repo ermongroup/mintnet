@@ -1,4 +1,5 @@
-from models.cnn_flow import *
+from models.cnn_flow import Net
+from models.cnn_flow_flexible import FlexibleNet
 # from models.cnn_new1 import *
 from torch.nn.utils import clip_grad_norm_, clip_grad_value_
 import shutil
@@ -14,6 +15,7 @@ import os
 from models.cnn_flow import DataParallelWithSampling
 from torchvision.utils import save_image, make_grid
 import torch.autograd as autograd
+import torch
 
 
 class DensityEstimationRunner(object):
@@ -101,7 +103,7 @@ class DensityEstimationRunner(object):
                                  num_workers=4, drop_last=True)
         test_iter = iter(test_loader)
 
-        net = Net(self.config).to(self.config.device)
+        net = FlexibleNet(self.config).to(self.config.device)
         net = DataParallelWithSampling(net)
 
         optimizer = self.get_optimizer(net.parameters())
@@ -121,8 +123,8 @@ class DensityEstimationRunner(object):
                 loss /= u.size(0)
             return loss
 
-        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50], gamma=0.1)
-        # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, self.config.training.n_epochs, eta_min=0.)
+        # scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50], gamma=0.1)
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, self.config.training.n_epochs, eta_min=0.)
 
         if self.args.resume_training:
             states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'),
@@ -304,13 +306,13 @@ class DensityEstimationRunner(object):
         total_bpd = 0
         total_n_data = 0
 
-        logging.info("Generating samples")
-        z = torch.randn(100, self.config.data.channels * self.config.data.image_size * self.config.data.image_size,
-                        device=self.config.device)
-        samples = net.sampling(z)
-        samples = self.sigmoid_transform(samples)
-        samples = make_grid(samples, 10)
-        save_image(samples, 'samples.png')
+        # logging.info("Generating samples")
+        # z = torch.randn(100, self.config.data.channels * self.config.data.image_size * self.config.data.image_size,
+        #                 device=self.config.device)
+        # samples = net.sampling(z)
+        # samples = self.sigmoid_transform(samples)
+        # samples = make_grid(samples, 10)
+        # save_image(samples, 'samples.png')
 
         logging.info("Calculating overall bpd")
 

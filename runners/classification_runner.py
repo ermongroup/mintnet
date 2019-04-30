@@ -222,8 +222,8 @@ class ClassificationRunner(object):
         test_loader = DataLoader(test_dataset, batch_size=self.config.training.batch_size, shuffle=False,
                                  num_workers=4, drop_last=False)
 
-        # net = Net(self.config).to(self.config.device)
-        net = ResNet(self.config).to(self.config.device)
+        net = Net(self.config).to(self.config.device)
+        # net = ResNet(self.config).to(self.config.device)
         net = torch.nn.DataParallel(net)
         states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'),
                             map_location=self.config.device)

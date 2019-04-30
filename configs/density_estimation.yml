@@ -29,7 +29,7 @@ model:
   latent_size: 85
   n_subsampling: 2
   act_norm: false
-  batch_norm: true
+  batch_norm: false
   rgb_last: true
   zero_init_start: 12
 
@@ -38,7 +38,7 @@ model:
 
 optim:
   optimizer: Adam
-  lr: 0.001
+  lr: 0.0001
   beta1: 0.9
   weight_decay: 0
   amsgrad: true
