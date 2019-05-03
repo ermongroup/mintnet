@@ -92,8 +92,8 @@ class ClassificationRunner(object):
                                  num_workers=4, drop_last=True)
         test_iter = iter(test_loader)
 
-        net = Net(self.config).to(self.config.device)
-        # net = ResNet(self.config).to(self.config.device)
+        # net = Net(self.config).to(self.config.device)
+        net = ResNet(self.config).to(self.config.device)
         net = torch.nn.DataParallel(net)
         optimizer = self.get_optimizer(net.parameters())
 
@@ -189,7 +189,7 @@ class ClassificationRunner(object):
                 transforms.ToTensor(),
                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
             ])
-            test_dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=False, download=True,
+            test_dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=True, download=True,
                                    transform=transform_test)
 
         elif self.config.data.dataset == 'MNIST':
@@ -222,8 +222,8 @@ class ClassificationRunner(object):
         test_loader = DataLoader(test_dataset, batch_size=self.config.training.batch_size, shuffle=False,
                                  num_workers=4, drop_last=False)
 
-        net = Net(self.config).to(self.config.device)
-        # net = ResNet(self.config).to(self.config.device)
+        # net = Net(self.config).to(self.config.device)
+        net = ResNet(self.config).to(self.config.device)
         net = torch.nn.DataParallel(net)
         states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'),
                             map_location=self.config.device)

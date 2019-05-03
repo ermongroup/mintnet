@@ -1,5 +1,5 @@
 training:
-  n_epochs: 100
+  n_epochs: 200
   batch_size: 32
   log_interval: 10
   snapshot_interval: 10
@@ -18,12 +18,14 @@ data:
 
 model:
   ## mnist model
-  #  n_layers: 12
-  #  latent_size: 32
+  #  n_layers: 20
+  #  latent_size: 64
   #  n_subsampling: 2
   #  act_norm: false
   #  rgb_last: true
-  #
+  #  batch_norm: false
+  #  zero_init_start: 100
+
   ## cifar10 model
   n_layers: 16
   latent_size: 85
@@ -31,14 +33,14 @@ model:
   act_norm: false
   batch_norm: false
   rgb_last: true
-  zero_init_start: 12
+  zero_init_start: 100
 
   # for sampling
-  n_iters: 10
+  n_iters: 5
 
 optim:
   optimizer: Adam
-  lr: 0.0001
+  lr: 0.001
   beta1: 0.9
   weight_decay: 0
   amsgrad: true

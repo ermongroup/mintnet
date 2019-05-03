@@ -1,6 +1,4 @@
 from models.cnn_flow import Net
-from models.cnn_flow_flexible import FlexibleNet
-# from models.cnn_new1 import *
 from torch.nn.utils import clip_grad_norm_, clip_grad_value_
 import shutil
 import tensorboardX
@@ -103,7 +101,7 @@ class DensityEstimationRunner(object):
                                  num_workers=4, drop_last=True)
         test_iter = iter(test_loader)
 
-        net = FlexibleNet(self.config).to(self.config.device)
+        net = Net(self.config).to(self.config.device)
         net = DataParallelWithSampling(net)
 
         optimizer = self.get_optimizer(net.parameters())
@@ -306,13 +304,13 @@ class DensityEstimationRunner(object):
         total_bpd = 0
         total_n_data = 0
 
-        # logging.info("Generating samples")
-        # z = torch.randn(100, self.config.data.channels * self.config.data.image_size * self.config.data.image_size,
-        #                 device=self.config.device)
-        # samples = net.sampling(z)
-        # samples = self.sigmoid_transform(samples)
-        # samples = make_grid(samples, 10)
-        # save_image(samples, 'samples.png')
+        logging.info("Generating samples")
+        z = torch.randn(100, self.config.data.channels * self.config.data.image_size * self.config.data.image_size,
+                        device=self.config.device)
+        samples = net.sampling(z)
+        samples = self.sigmoid_transform(samples)
+        samples = make_grid(samples, 10)
+        save_image(samples, 'samples.png')
 
         logging.info("Calculating overall bpd")
 

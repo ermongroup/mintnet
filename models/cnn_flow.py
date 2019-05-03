@@ -13,6 +13,7 @@ import threading
 from torch.nn.parallel.parallel_apply import get_a_var, _get_device_index
 from itertools import product
 from tqdm import tqdm
+from numba import jit
 
 
 def leaky_relu_derivative(x, slope):
@@ -196,8 +197,10 @@ class FlowBatchNorm2d(nn.BatchNorm2d):
             bias = self.bias[None, :, None, None]
             diag = (weight / std).expand_as(input)
             with torch.no_grad():
-                self.running_mean = (1. - exponential_average_factor) * self.running_mean + exponential_average_factor * mean.squeeze()
-                self.running_var = (1. - exponential_average_factor) * self.running_var + exponential_average_factor * var
+                self.running_mean = (
+                                            1. - exponential_average_factor) * self.running_mean + exponential_average_factor * mean.squeeze()
+                self.running_var = (
+                                           1. - exponential_average_factor) * self.running_var + exponential_average_factor * var
 
             return (input - mean) / std * weight + bias, \
                    log_det + torch.sum(torch.log(torch.abs(diag)), dim=(1, 2, 3))
@@ -235,6 +238,9 @@ class BasicBlock(nn.Module):
         self.padding1 = kernel1 // 2
         self.padding2 = kernel2 // 2
         self.padding3 = kernel3 // 2
+        self.kernel1 = kernel1
+        self.kernel2 = kernel2
+        self.kernel3 = kernel3
 
         self.weight1 = nn.Parameter(
             torch.randn(input_dim * latent_dim, input_dim, kernel1, kernel1) * 1e-5
@@ -275,23 +281,22 @@ class BasicBlock(nn.Module):
 
         # Mask out the element above diagonal
         self.type = type
-        self.mask1 = nn.Parameter(torch.ones_like(self.weight1), requires_grad=False)
-        self.center_mask1 = nn.Parameter(torch.zeros_like(self.weight1), requires_grad=False)
-        self.mask2 = nn.Parameter(torch.ones_like(self.weight2), requires_grad=False)
-        self.center_mask2 = nn.Parameter(torch.zeros_like(self.weight2), requires_grad=False)
-        self.mask3 = nn.Parameter(torch.ones_like(self.weight3), requires_grad=False)
-        self.center_mask3 = nn.Parameter(torch.zeros_like(self.weight3), requires_grad=False)
+        self.mask1 = np.ones(self.weight1.shape, dtype=np.float32)
+        self.center_mask1 = np.zeros(self.weight1.shape, dtype=np.float32)
+        self.mask2 = np.ones(self.weight2.shape, dtype=np.float32)
+        self.center_mask2 = np.zeros(self.weight2.shape, dtype=np.float32)
+        self.mask3 = np.ones(self.weight3.shape, dtype=np.float32)
+        self.center_mask3 = np.zeros(self.weight3.shape, dtype=np.float32)
 
-        for i in range(latent_dim):
-            fill_mask(self.mask1[i * input_dim: (i + 1) * input_dim, ...], type=type, rgb_last=config.model.rgb_last)
-            fill_center_mask(self.center_mask1[i * input_dim: (i + 1) * input_dim, ...])
-            fill_mask(self.mask3[:, i * input_dim: (i + 1) * input_dim, ...], type=type, rgb_last=config.model.rgb_last)
-            fill_center_mask(self.center_mask3[:, i * input_dim: (i + 1) * input_dim, ...])
-            for j in range(latent_dim):
-                fill_mask(self.mask2[i * input_dim: (i + 1) * input_dim, j * input_dim: (j + 1) * input_dim, ...],
-                          type=type, rgb_last=config.model.rgb_last)
-                fill_center_mask(
-                    self.center_mask2[i * input_dim: (i + 1) * input_dim, j * input_dim: (j + 1) * input_dim, ...])
+        generate_masks(self.mask1, self.center_mask1, self.mask2, self.center_mask2, self.mask3, self.center_mask3,
+                       input_dim, latent_dim, type, config.model.rgb_last)
+
+        self.mask1 = nn.Parameter(torch.from_numpy(self.mask1), requires_grad=False)
+        self.center_mask1 = nn.Parameter(torch.from_numpy(self.center_mask1), requires_grad=False)
+        self.mask2 = nn.Parameter(torch.from_numpy(self.mask2), requires_grad=False)
+        self.center_mask2 = nn.Parameter(torch.from_numpy(self.center_mask2), requires_grad=False)
+        self.mask3 = nn.Parameter(torch.from_numpy(self.mask3), requires_grad=False)
+        self.center_mask3 = nn.Parameter(torch.from_numpy(self.center_mask3), requires_grad=False)
 
         self.non_linearity = F.elu
         self.non_linearity_derivative = elu_derivative
@@ -417,6 +422,149 @@ class BasicBlock(nn.Module):
             diag1_share = torch.diagonal(
                 masked_weight1[..., kernel_mid_y, kernel_mid_x].view(self.latent_dim, self.input_dim,
                                                                      self.input_dim),
+                dim1=-2, dim2=-1)[None, :, :, None, None]  # shape: 1 x latent_dim x input_dim x 1 x 1
+
+            kernel_mid_y, kernel_mid_x = masked_weight2.shape[-2] // 2, masked_weight2.shape[-1] // 2
+            diag2_share = masked_weight2[..., kernel_mid_y, kernel_mid_x].view(self.latent_dim, self.input_dim,
+                                                                               self.latent_dim,
+                                                                               self.input_dim)
+            diag2_share = torch.diagonal(diag2_share.permute(0, 2, 1, 3), dim1=-2,
+                                         dim2=-1)  # shape: latent_dim x latent_dim x input_dim
+            diag2_share = diag2_share[None, :, :, :, None,
+                          None]  # shape: 1 x latent_dim x latent_dim x input_dim x 1 x 1
+
+            kernel_mid_y, kernel_mid_x = masked_weight3.shape[-2] // 2, masked_weight3.shape[-1] // 2
+            # shape: input_dim x latent_dim x input_dim
+            diag3_share = masked_weight3[..., kernel_mid_y, kernel_mid_x].view(self.input_dim, self.latent_dim,
+                                                                               self.input_dim)
+
+            # shape: 1 x latent_dim x input_dim x 1 x 1
+            diag3_share = torch.diagonal(diag3_share.permute(1, 0, 2), dim1=-2, dim2=-1)[None, :, :, None, None]
+
+            def value_and_grad(x, t):
+                # shape: B x latent_output . input_dim x img_size x img_size
+                latent_output = F.conv2d(x, masked_weight1, bias=self.bias1, padding=self.padding1, stride=1)
+
+                diag1 = self.non_linearity_derivative(latent_output). \
+                            view(x.shape[0], self.latent_dim, self.input_dim, x.shape[-2], x.shape[-1]) \
+                        * diag1_share  # shape: B x latent_dim x input_dim x img_shape x img_shape
+
+                latent_output = self.non_linearity(latent_output)
+
+                latent_output = F.conv2d(latent_output, masked_weight2, bias=self.bias2, padding=self.padding2,
+                                         stride=1)
+
+                diag2 = torch.sum(diag2_share * diag1.unsqueeze(1),
+                                  dim=2)  # shape: B x latent_dim x input_dim x img_shape x img_shape
+
+                latent_output_derivative = self.non_linearity_derivative(latent_output)
+
+                latent_output = self.non_linearity(latent_output)
+
+                latent_output = F.conv2d(latent_output, masked_weight3, bias=self.bias3, padding=self.padding3,
+                                         stride=1)
+
+                diag3 = latent_output_derivative.view(x.shape[0], self.latent_dim, self.input_dim, x.shape[-2],
+                                                      x.shape[-1]) \
+                        * diag3_share  # shape: B x latent_dim x input_dim x img_shape x img_shape
+
+                diag = torch.sum(diag2 * diag3, dim=1)  # shape: B x input_dim x img_shape x img_shape
+
+                derivative = diag + t # shape: B x input_dim x img_shape x img_shape
+
+                output = latent_output + t * x  # shape: B x input_dim x img_shape x img_shape
+
+                return output, derivative
+
+            x = torch.zeros_like(z)
+            window_radius = (self.kernel3 + self.padding2 * 2 + self.padding1 * 2) // 2
+
+            if self.type == 'A':
+                print("type A")
+                if self.config.model.rgb_last:
+                    iterator = tqdm(product(range(self.shape[0]), range(self.shape[-2]), range(self.shape[-1])),
+                                    total=np.prod(self.shape))
+                else:
+                    iterator = tqdm(product(range(self.shape[-2]), range(self.shape[-1]), range(self.shape[0])),
+                                    total=np.prod(self.shape))
+                for i, j, c in iterator:
+                    if self.config.model.rgb_last:
+                        i, j, c = j, c, i
+
+                    x[:, c, i, j] = z[:, c, i, j] / shared_t[0, c, i, j]
+
+                    imin = max(i - window_radius, 0)
+                    imax = min(i + window_radius, self.shape[1] - 1)
+                    jmin = max(j - window_radius, 0)
+                    jmax = min(j + window_radius, self.shape[2] - 1)
+                    cropped_x = x[:, :, imin:imax + 1, jmin:jmax + 1]
+                    cropped_t = shared_t[:, :, imin:imax + 1, jmin:jmax + 1]
+                    pin_i = i - imin
+                    pin_j = j - jmin
+
+                    for _ in range(self.config.model.n_iters):
+                        output, grad = value_and_grad(cropped_x, cropped_t)
+                        x[:, c, i, j] += (z[:, c, i, j] - output[:, c, pin_i, pin_j]) / grad[:, c, pin_i, pin_j]
+
+                return x
+
+            elif self.type == 'B':
+                print("type B")
+                if self.config.model.rgb_last:
+                    iterator = tqdm(product(reversed(range(self.shape[0])), reversed(range(self.shape[-2])),
+                                            reversed(range(self.shape[-1]))), total=np.prod(self.shape))
+                else:
+                    iterator = tqdm(product(reversed(range(self.shape[-2])), reversed(range(self.shape[-1])),
+                                            reversed(range(self.shape[0]))), total=np.prod(self.shape))
+                for i, j, c in iterator:
+                    if self.config.model.rgb_last:
+                        i, j, c = j, c, i
+                    x[:, c, i, j] = z[:, c, i, j] / shared_t[0, c, i, j]
+                    imin = max(i - window_radius, 0)
+                    imax = min(i + window_radius, self.shape[1] - 1)
+                    jmin = max(j - window_radius, 0)
+                    jmax = min(j + window_radius, self.shape[2] - 1)
+                    cropped_x = x[:, :, imin:imax + 1, jmin:jmax + 1]
+                    cropped_t = shared_t[:, :, imin:imax + 1, jmin:jmax + 1]
+                    pin_i = i - imin
+                    pin_j = j - jmin
+
+                    for _ in range(self.config.model.n_iters):
+                        output, grad = value_and_grad(cropped_x, cropped_t)
+                        x[:, c, i, j] += (z[:, c, i, j] - output[:, c, pin_i, pin_j]) / grad[:, c, pin_i, pin_j]
+                return x
+
+    def old_sampling(self, z):
+        with torch.no_grad():
+            ## more flexible diagonal
+            masked_weight1 = self.weight1 * self.mask1
+            masked_weight3 = self.weight3 * self.mask3
+            center1 = masked_weight1 * self.center_mask1  # shape: latent_dim.input_dim x input_dim x kernel x kernel
+            center3 = masked_weight3 * self.center_mask3  # shape: input_dim x latent_dim.input_dim x kernel x kernel
+
+            # shape: 1 x latent_dim x input_dim x input_dim x kernel x kernel
+            center1 = center1.view(self.latent_dim, self.input_dim, self.input_dim,
+                                   center1.shape[-2], center1.shape[-1]).unsqueeze(0)
+            # shape: latent_dim x 1 x input_dim x input_dim x kernel x kernel
+            center3 = center3.view(self.input_dim, self.latent_dim, self.input_dim, center3.shape[-2],
+                                   center3.shape[-1]).permute(1, 0, 2, 3, 4).unsqueeze(1)
+
+            sign_prods = torch.sign(center1) * torch.sign(center3)
+            center2 = self.weight2 * self.center_mask2  # shape: latent_dim.input_dim x latent_dim.input_dim x kernel x kernel
+            center2 = center2.view(self.latent_dim, self.input_dim, self.latent_dim, self.input_dim,
+                                   center2.shape[-2], center2.shape[-1])
+
+            center2 = center2.permute(0, 2, 1, 3, 4, 5)
+            center2 = sign_prods * torch.abs(center2)
+            center2 = center2.permute(0, 2, 1, 3, 4, 5).contiguous().view_as(self.weight2)
+            masked_weight2 = (center2 * self.center_mask2 + self.weight2 * (1. - self.center_mask2)) * self.mask2
+
+            shared_t = torch.max(torch.abs(self.t), torch.tensor(1e-12, device=z.device))
+
+            kernel_mid_y, kernel_mid_x = masked_weight1.shape[-2] // 2, masked_weight1.shape[-1] // 2
+            diag1_share = torch.diagonal(
+                masked_weight1[..., kernel_mid_y, kernel_mid_x].view(self.latent_dim, self.input_dim,
+                                                                     self.input_dim),
                 dim1=-2, dim2=-1)[None, :, :, None, None]
 
             kernel_mid_y, kernel_mid_x = masked_weight2.shape[-2] // 2, masked_weight2.shape[-1] // 2
@@ -473,10 +621,14 @@ class BasicBlock(nn.Module):
             if self.type == 'A':
                 print("type A")
                 if self.config.model.rgb_last:
-                    iterator = tqdm(product(range(self.shape[0]), range(self.shape[-2]), range(self.shape[-1])))
+                    iterator = tqdm(product(range(self.shape[0]), range(self.shape[-2]), range(self.shape[-1])),
+                                    total=np.prod(self.shape))
                 else:
-                    iterator = tqdm(product(range(self.shape[-2]), range(self.shape[-1]), range(self.shape[0])))
+                    iterator = tqdm(product(range(self.shape[-2]), range(self.shape[-1]), range(self.shape[0])),
+                                    total=np.prod(self.shape))
                 for i, j, c in iterator:
+                    if self.config.model.rgb_last:
+                        i, j, c = j, c, i
                     x[:, c, i, j] = z[:, c, i, j] / shared_t[0, c, i, j]
                     for _ in range(self.config.model.n_iters):
                         output, grad = value_and_grad(x)
@@ -485,13 +637,15 @@ class BasicBlock(nn.Module):
 
             elif self.type == 'B':
                 print("type B")
-                if self.config.mode.rgb_last:
+                if self.config.model.rgb_last:
                     iterator = tqdm(product(reversed(range(self.shape[0])), reversed(range(self.shape[-2])),
-                                            reversed(range(self.shape[-1]))))
+                                            reversed(range(self.shape[-1]))), total=np.prod(self.shape))
                 else:
                     iterator = tqdm(product(reversed(range(self.shape[-2])), reversed(range(self.shape[-1])),
-                                            reversed(range(self.shape[0]))))
+                                            reversed(range(self.shape[0]))), total=np.prod(self.shape))
                 for i, j, c in iterator:
+                    if self.config.model.rgb_last:
+                        i, j, c = j, c, i
                     x[:, c, i, j] = z[:, c, i, j] / shared_t[0, c, i, j]
                     for _ in range(self.config.model.n_iters):
                         output, grad = value_and_grad(x)
