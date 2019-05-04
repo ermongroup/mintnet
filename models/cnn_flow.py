@@ -470,7 +470,7 @@ class BasicBlock(nn.Module):
 
                 diag = torch.sum(diag2 * diag3, dim=1)  # shape: B x input_dim x img_shape x img_shape
 
-                derivative = diag + t # shape: B x input_dim x img_shape x img_shape
+                derivative = diag + t  # shape: B x input_dim x img_shape x img_shape
 
                 output = latent_output + t * x  # shape: B x input_dim x img_shape x img_shape
 
@@ -534,7 +534,7 @@ class BasicBlock(nn.Module):
                         x[:, c, i, j] += (z[:, c, i, j] - output[:, c, pin_i, pin_j]) / grad[:, c, pin_i, pin_j]
                 return x
 
-    def old_sampling(self, z):
+    def slow_sampling(self, z):
         with torch.no_grad():
             ## more flexible diagonal
             masked_weight1 = self.weight1 * self.mask1

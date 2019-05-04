@@ -10,11 +10,18 @@ data:
   #  image_size: 28
   #  channels: 1
   #  horizontal_flip: false
-  dataset: CIFAR10
+#  dataset: CIFAR10
+#  image_size: 32
+#  lambda_logit: 0.05
+#  channels: 3
+#  horizontal_flip: true
+
+  dataset: ImageNet
   image_size: 32
   lambda_logit: 0.05
   channels: 3
   horizontal_flip: true
+
 
 model:
   ## mnist model
@@ -27,13 +34,13 @@ model:
   #  zero_init_start: 100
 
   ## cifar10 model
-  n_layers: 16
+  n_layers: 21
   latent_size: 85
   n_subsampling: 2
   act_norm: false
   batch_norm: false
   rgb_last: true
-  zero_init_start: 100
+  zero_init_start: 12
 
   # for sampling
   n_iters: 5

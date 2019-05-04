@@ -12,8 +12,10 @@ import torch.optim as optim
 import os
 from models.cnn_flow import DataParallelWithSampling
 from torchvision.utils import save_image, make_grid
+from datasets.imagenet import ImageNet
 import torch.autograd as autograd
 import torch
+import tqdm
 
 
 class DensityEstimationRunner(object):
@@ -94,6 +96,9 @@ class DensityEstimationRunner(object):
                             transform=train_transform)
             test_dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist_test'), train=False, download=True,
                                  transform=test_transform)
+        elif self.config.data.dataset == 'ImageNet':
+            dataset = ImageNet('/atlas/u/yangsong/datasets/imagenet', train=True, transform=train_transform)
+            test_dataset = ImageNet('/atlas/u/yangsong/datasets/imagenet', train=False, transform=test_transform)
 
         dataloader = DataLoader(dataset, batch_size=self.config.training.batch_size, shuffle=True, num_workers=4,
                                 drop_last=True)
@@ -244,15 +249,14 @@ class DensityEstimationRunner(object):
         ])
 
         if self.config.data.dataset == 'CIFAR10':
-            dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=True, download=True,
-                              transform=transform)
             test_dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=False, download=True,
                                    transform=transform)
         elif self.config.data.dataset == 'MNIST':
-            dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist'), train=True, download=True,
-                            transform=transform)
             test_dataset = MNIST(os.path.join(self.args.run, 'datasets', 'fmnist'), train=False, download=True,
                                  transform=transform)
+
+        elif self.config.data.dataset == 'ImageNet':
+            test_dataset = ImageNet('/atlas/u/yangsong/datasets/imagenet', train=False, transform=transform)
 
         elif self.config.data.dataset == 'CELEBA':
             dataset = ImageFolder(root=os.path.join(self.args.run, 'datasets', 'celeba'),
@@ -304,18 +308,18 @@ class DensityEstimationRunner(object):
         total_bpd = 0
         total_n_data = 0
 
-        logging.info("Generating samples")
-        z = torch.randn(100, self.config.data.channels * self.config.data.image_size * self.config.data.image_size,
-                        device=self.config.device)
-        samples = net.sampling(z)
-        samples = self.sigmoid_transform(samples)
-        samples = make_grid(samples, 10)
-        save_image(samples, 'samples.png')
+        # logging.info("Generating samples")
+        # z = torch.randn(100, self.config.data.channels * self.config.data.image_size * self.config.data.image_size,
+        #                 device=self.config.device)
+        # samples = net.sampling(z)
+        # samples = self.sigmoid_transform(samples)
+        # samples = make_grid(samples, 10)
+        # save_image(samples, 'samples.png')
 
         logging.info("Calculating overall bpd")
 
         with torch.no_grad():
-            for batch_idx, (test_data, _) in enumerate(test_loader):
+            for batch_idx, (test_data, _) in enumerate(tqdm.tqdm(test_loader)):
                 test_data = test_data.to(self.config.device) * 255. / 256.
                 test_data += torch.rand_like(test_data) / 256.
                 test_data = self.logit_transform(test_data)
