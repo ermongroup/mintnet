@@ -3,7 +3,7 @@ from torch.nn.utils import clip_grad_norm_, clip_grad_value_
 import shutil
 import tensorboardX
 import logging
-from torchvision.datasets import CIFAR10, MNIST, ImageFolder
+from torchvision.datasets import CIFAR10, MNIST, ImageFolder, CIFAR100
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Subset
 import torch.nn.functional as F
@@ -31,7 +31,7 @@ class ClassificationRunner(object):
             raise NotImplementedError('Optimizer {} not understood.'.format(self.config.optim.optimizer))
 
     def train(self):
-        if self.config.data.dataset == 'CIFAR10':
+        if 'CIFAR' in self.config.data.dataset:
             if self.config.data.augmentation:
                 transform_train = transforms.Compose([
                     transforms.RandomCrop(32, padding=4),
@@ -42,7 +42,6 @@ class ClassificationRunner(object):
 
             else:
                 transform_train = transforms.Compose([
-                    transforms.Resize(self.config.data.image_size),
                     transforms.ToTensor(),
                     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
                 ])
@@ -51,16 +50,29 @@ class ClassificationRunner(object):
                 transforms.ToTensor(),
                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
             ])
-            dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=True, download=True,
-                              transform=transform_train)
-            test_dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=False, download=True,
-                                   transform=transform_test)
+            if self.config.data.dataset == 'CIFAR10':
+                dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=True, download=True,
+                                  transform=transform_train)
+                test_dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=False, download=True,
+                                       transform=transform_test)
+            elif self.config.data.dataset == 'CIFAR100':
+                dataset = CIFAR100(os.path.join(self.args.run, 'datasets', 'cifar100'), train=True, download=True,
+                                  transform=transform_train)
+                test_dataset = CIFAR100(os.path.join(self.args.run, 'datasets', 'cifar100'), train=False, download=True,
+                                       transform=transform_test)
 
         elif self.config.data.dataset == 'MNIST':
-            transform = transforms.Compose([
-                transforms.Resize(self.config.data.image_size),
-                transforms.ToTensor()
-            ])
+            if self.config.data.augmentation:
+                transform = transforms.Compose([
+                    transforms.RandomCrop(28, padding=2),
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.5,), (0.5,))
+                ])
+            else:
+                transform = transforms.Compose([
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.5,), (0.5,))
+                ])
 
             dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist'), train=True, download=True,
                             transform=transform)
@@ -92,8 +104,8 @@ class ClassificationRunner(object):
                                  num_workers=4, drop_last=True)
         test_iter = iter(test_loader)
 
-        # net = Net(self.config).to(self.config.device)
-        net = ResNet(self.config).to(self.config.device)
+        net = Net(self.config).to(self.config.device)
+        # net = ResNet(self.config).to(self.config.device)
         net = torch.nn.DataParallel(net)
         optimizer = self.get_optimizer(net.parameters())
 
@@ -116,8 +128,7 @@ class ClassificationRunner(object):
 
         # Train the model
         # scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[150], gamma=0.3)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, self.config.training.n_epochs,
-                                                               eta_min=0., last_epoch=-1)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, self.config.training.n_epochs, eta_min=0.)
         # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, min_lr=1e-08)
 
         for epoch in range(begin_epoch, self.config.training.n_epochs):
@@ -182,20 +193,23 @@ class ClassificationRunner(object):
                                                 'checkpoint_epoch_{}.pth'.format(epoch + 1)))
                 torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))
 
-
     def test(self):
-        if self.config.data.dataset == 'CIFAR10':
+        if 'CIFAR' in self.config.data.dataset:
             transform_test = transforms.Compose([
                 transforms.ToTensor(),
                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
             ])
-            test_dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=True, download=True,
-                                   transform=transform_test)
+            if self.config.data.dataset == 'CIFAR10':
+                test_dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=True, download=True,
+                                       transform=transform_test)
+            elif self.config.data.dataset == 'CIFAR100':
+                test_dataset = CIFAR100(os.path.join(self.args.run, 'datasets', 'cifar100'), train=True, download=True,
+                                       transform=transform_test)
 
         elif self.config.data.dataset == 'MNIST':
             transform = transforms.Compose([
-                transforms.Resize(self.config.data.image_size),
-                transforms.ToTensor()
+                transforms.ToTensor(),
+                transforms.Normalize((0.5,), (0.5,))
             ])
 
             test_dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist_test'), train=False, download=True,
@@ -222,8 +236,8 @@ class ClassificationRunner(object):
         test_loader = DataLoader(test_dataset, batch_size=self.config.training.batch_size, shuffle=False,
                                  num_workers=4, drop_last=False)
 
-        # net = Net(self.config).to(self.config.device)
-        net = ResNet(self.config).to(self.config.device)
+        net = Net(self.config).to(self.config.device)
+        # net = ResNet(self.config).to(self.config.device)
         net = torch.nn.DataParallel(net)
         states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'),
                             map_location=self.config.device)

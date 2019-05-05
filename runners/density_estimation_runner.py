@@ -127,7 +127,10 @@ class DensityEstimationRunner(object):
             return loss
 
         # scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50], gamma=0.1)
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, self.config.training.n_epochs, eta_min=0.)
+        if self.config.data.dataset == 'ImageNet':
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, self.config.training.maximum_steps, eta_min=0.)
+        else:
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, self.config.training.n_epochs, eta_min=0.)
 
         if self.args.resume_training:
             states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'),
@@ -145,7 +148,8 @@ class DensityEstimationRunner(object):
         # Train the model
 
         for epoch in range(begin_epoch, self.config.training.n_epochs):
-            scheduler.step()
+            if self.config.data.dataset != 'ImageNet':
+                scheduler.step()
             for batch_idx, (data, _) in enumerate(dataloader):
                 net.train()
                 # Transform to logit space since pixel values ranging from 0-1
@@ -204,7 +208,35 @@ class DensityEstimationRunner(object):
                                                                                         test_loss.item()))
                 step += 1
 
-            if (epoch + 1) % self.config.training.snapshot_interval == 0:
+            if self.config.data.dataset == 'ImageNet':
+                scheduler.step()
+                if step % self.config.training.snapshot_interval == 0:
+                    states = [
+                        net.state_dict(),
+                        optimizer.state_dict(),
+                        epoch + 1,
+                        step,
+                        scheduler.state_dict()
+                    ]
+                    torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
+                                                    'checkpoint_batch_{}.pth'.format(epoch + 1)))
+                    torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))
+
+            if step == self.config.training.maximum_steps:
+                states = [
+                    net.state_dict(),
+                    optimizer.state_dict(),
+                    epoch + 1,
+                    step,
+                    scheduler.state_dict()
+                ]
+                torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
+                                                'checkpoint_last_batch.pth'.format(epoch + 1)))
+                torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))
+
+                return 0
+
+            if self.config.data.dataset != 'ImageNet' and (epoch + 1) % self.config.training.snapshot_interval == 0:
                 states = [
                     net.state_dict(),
                     optimizer.state_dict(),

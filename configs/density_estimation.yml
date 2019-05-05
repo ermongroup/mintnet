@@ -1,8 +1,11 @@
 training:
-  n_epochs: 200
+  #  n_epochs: 200 # cifar-10
+  n_epochs: 15 # imagenet
+  maximum_steps: 350000 # imagenet
   batch_size: 32
   log_interval: 10
-  snapshot_interval: 10
+#  snapshot_interval: 10 # cifar-10
+  snapshot_interval: 10000 # imagenet
 
 data:
   #  dataset: MNIST
@@ -20,7 +23,7 @@ data:
   image_size: 32
   lambda_logit: 0.05
   channels: 3
-  horizontal_flip: true
+  horizontal_flip: false
 
 
 model:

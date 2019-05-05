@@ -7,6 +7,7 @@ import numpy as np
 import math
 from .utils import *
 import tqdm
+from functools import partial
 
 
 class ActNorm(nn.Module):
@@ -49,10 +50,12 @@ class BasicBlock(nn.Module):
         super().__init__()
         self.input_dim = input_dim
         self.latent_dim = latent_dim
-        # self.kernel = kernel
         self.padding1 = kernel1 // 2
         self.padding2 = kernel2 // 2
         self.padding3 = kernel3 // 2
+        self.kernel1 = kernel1
+        self.kernel2 = kernel2
+        self.kernel3 = kernel3
 
         self.weight1 = nn.Parameter(
             torch.randn(input_dim * latent_dim, input_dim, kernel1, kernel1) * 1e-5
@@ -61,8 +64,9 @@ class BasicBlock(nn.Module):
             torch.zeros(input_dim * latent_dim)
         )
 
-        self.init_conv_weight(self.weight1)
-        self.init_conv_bias(self.weight1, self.bias1)
+        if not init_zero:
+            self.init_conv_weight(self.weight1)
+            self.init_conv_bias(self.weight1, self.bias1)
 
         self.weight2 = nn.Parameter(
             torch.randn(input_dim * latent_dim, input_dim * latent_dim, kernel2, kernel2) * 1e-5
@@ -84,35 +88,37 @@ class BasicBlock(nn.Module):
         self.bias3 = nn.Parameter(
             torch.zeros(input_dim)
         )
-
-        self.init_conv_weight(self.weight3)
-        self.init_conv_bias(self.weight3, self.bias3)
+        if not init_zero:
+            self.init_conv_weight(self.weight3)
+            self.init_conv_bias(self.weight3, self.bias3)
 
         # Define masks
 
         # Mask out the element above diagonal
-        self.mask1 = nn.Parameter(torch.ones_like(self.weight1), requires_grad=False)
-        self.center_mask1 = nn.Parameter(torch.zeros_like(self.weight1), requires_grad=False)
-        self.mask2 = nn.Parameter(torch.ones_like(self.weight2), requires_grad=False)
-        self.center_mask2 = nn.Parameter(torch.zeros_like(self.weight2), requires_grad=False)
-        self.mask3 = nn.Parameter(torch.ones_like(self.weight3), requires_grad=False)
-        self.center_mask3 = nn.Parameter(torch.zeros_like(self.weight3), requires_grad=False)
+        self.type = type
+        self.mask1 = np.ones(self.weight1.shape, dtype=np.float32)
+        self.center_mask1 = np.zeros(self.weight1.shape, dtype=np.float32)
+        self.mask2 = np.ones(self.weight2.shape, dtype=np.float32)
+        self.center_mask2 = np.zeros(self.weight2.shape, dtype=np.float32)
+        self.mask3 = np.ones(self.weight3.shape, dtype=np.float32)
+        self.center_mask3 = np.zeros(self.weight3.shape, dtype=np.float32)
 
-        for i in range(latent_dim):
-            fill_mask(self.mask1[i * input_dim: (i + 1) * input_dim, ...], type=type, rgb_last=config.model.rgb_last)
-            fill_center_mask(self.center_mask1[i * input_dim: (i + 1) * input_dim, ...])
-            fill_mask(self.mask3[:, i * input_dim: (i + 1) * input_dim, ...], type=type, rgb_last=config.model.rgb_last)
-            fill_center_mask(self.center_mask3[:, i * input_dim: (i + 1) * input_dim, ...])
-            for j in range(latent_dim):
-                fill_mask(self.mask2[i * input_dim: (i + 1) * input_dim, j * input_dim: (j + 1) * input_dim, ...],
-                          type=type, rgb_last=config.model.rgb_last)
-                fill_center_mask(
-                    self.center_mask2[i * input_dim: (i + 1) * input_dim, j * input_dim: (j + 1) * input_dim, ...])
+        generate_masks(self.mask1, self.center_mask1, self.mask2, self.center_mask2, self.mask3, self.center_mask3,
+                       input_dim, latent_dim, type, config.model.rgb_last)
 
-        self.non_linearity = F.elu
+        self.mask1 = nn.Parameter(torch.from_numpy(self.mask1), requires_grad=False)
+        self.center_mask1 = nn.Parameter(torch.from_numpy(self.center_mask1), requires_grad=False)
+        self.mask2 = nn.Parameter(torch.from_numpy(self.mask2), requires_grad=False)
+        self.center_mask2 = nn.Parameter(torch.from_numpy(self.center_mask2), requires_grad=False)
+        self.mask3 = nn.Parameter(torch.from_numpy(self.mask3), requires_grad=False)
+        self.center_mask3 = nn.Parameter(torch.from_numpy(self.center_mask3), requires_grad=False)
+
+        self.non_linearity = F.leaky_relu
 
         self.t = nn.Parameter(torch.ones(1, *shape))
         self.shape = shape
+        self.config = config
+
 
     def check_nan(self, inputs):
         if torch.isnan(inputs).any():
