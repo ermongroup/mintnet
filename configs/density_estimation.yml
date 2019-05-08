@@ -46,7 +46,7 @@ model:
   zero_init_start: 12
 
   # for sampling
-  n_iters: 5
+  n_iters: 100
 
 optim:
   optimizer: Adam

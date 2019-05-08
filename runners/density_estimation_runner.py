@@ -340,13 +340,13 @@ class DensityEstimationRunner(object):
         total_bpd = 0
         total_n_data = 0
 
-        # logging.info("Generating samples")
-        # z = torch.randn(100, self.config.data.channels * self.config.data.image_size * self.config.data.image_size,
-        #                 device=self.config.device)
-        # samples = net.sampling(z)
-        # samples = self.sigmoid_transform(samples)
-        # samples = make_grid(samples, 10)
-        # save_image(samples, 'samples.png')
+        logging.info("Generating samples")
+        z = torch.randn(100, self.config.data.channels * self.config.data.image_size * self.config.data.image_size,
+                        device=self.config.device)
+        samples = net.sampling(z)
+        samples = self.sigmoid_transform(samples)
+        samples = make_grid(samples, 10)
+        save_image(samples, 'samples.png')
 
         logging.info("Calculating overall bpd")
 

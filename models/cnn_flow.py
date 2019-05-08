@@ -422,6 +422,106 @@ class BasicBlock(nn.Module):
             diag1_share = torch.diagonal(
                 masked_weight1[..., kernel_mid_y, kernel_mid_x].view(self.latent_dim, self.input_dim,
                                                                      self.input_dim),
+                dim1=-2, dim2=-1)[None, :, :, None, None]
+
+            kernel_mid_y, kernel_mid_x = masked_weight2.shape[-2] // 2, masked_weight2.shape[-1] // 2
+            diag2_share = masked_weight2[..., kernel_mid_y, kernel_mid_x].view(self.latent_dim, self.input_dim,
+                                                                               self.latent_dim,
+                                                                               self.input_dim)
+            diag2_share = torch.diagonal(diag2_share.permute(0, 2, 1, 3), dim1=-2,
+                                         dim2=-1)  # shape: latent_dim x latent_dim x input_dim
+            diag2_share = diag2_share[None, :, :, :, None,
+                          None]  # shape: 1 x latent_dim x latent_dim x input_dim x 1 x 1
+
+            kernel_mid_y, kernel_mid_x = masked_weight3.shape[-2] // 2, masked_weight3.shape[-1] // 2
+            diag3_share = masked_weight3[..., kernel_mid_y, kernel_mid_x].view(self.input_dim, self.latent_dim,
+                                                                               self.input_dim)
+            diag3_share = torch.diagonal(diag3_share.permute(1, 0, 2), dim1=-2, dim2=-1)[None, :, :, None, None]
+
+            def value_and_grad(x):
+                # shape: B x latent_output . input_dim x img_size x img_size
+                latent_output = F.conv2d(x, masked_weight1, bias=self.bias1, padding=self.padding1, stride=1)
+
+                diag1 = self.non_linearity_derivative(latent_output). \
+                            view(x.shape[0], self.latent_dim, self.input_dim, x.shape[-2], x.shape[-1]) \
+                        * diag1_share  # shape: B x latent_dim x input_dim x img_shape x img_shape
+
+                latent_output = self.non_linearity(latent_output)
+
+                latent_output = F.conv2d(latent_output, masked_weight2, bias=self.bias2, padding=self.padding2,
+                                         stride=1)
+
+                diag2 = torch.sum(diag2_share * diag1.unsqueeze(1),
+                                  dim=2)  # shape: B x latent_dim x input_dim x img_shape x img_shape
+
+                latent_output_derivative = self.non_linearity_derivative(latent_output)
+
+                latent_output = self.non_linearity(latent_output)
+
+                latent_output = F.conv2d(latent_output, masked_weight3, bias=self.bias3, padding=self.padding3,
+                                         stride=1)
+
+                diag3 = latent_output_derivative.view(x.shape[0], self.latent_dim, self.input_dim, x.shape[-2],
+                                                      x.shape[-1]) \
+                        * diag3_share  # shape: B x latent_dim x input_dim x img_shape x img_shape
+
+                diag = torch.sum(diag2 * diag3, dim=1)  # shape: B x input_dim x img_shape x img_shape
+
+                derivative = diag + shared_t  # shape: B x input_dim x img_shape x img_shape
+
+                output = latent_output + shared_t * x  # shape: B x input_dim x img_shape x img_shape
+
+                return output, derivative
+
+            x = torch.zeros_like(z)
+
+            if self.type == 'A':
+                print("type A")
+                x = z / shared_t
+                for _ in tqdm(range(self.config.model.n_iters)):
+                    output, grad = value_and_grad(x)
+                    x += (z - output) / grad
+                return x
+
+            elif self.type == 'B':
+                print("type B")
+                x = z / shared_t
+                for _ in tqdm(range(self.config.model.n_iters)):
+                    output, grad = value_and_grad(x)
+                    x += (z - output) / grad
+                return x
+
+    def smart_sampling(self, z):
+        with torch.no_grad():
+            ## more flexible diagonal
+            masked_weight1 = self.weight1 * self.mask1
+            masked_weight3 = self.weight3 * self.mask3
+            center1 = masked_weight1 * self.center_mask1  # shape: latent_dim.input_dim x input_dim x kernel x kernel
+            center3 = masked_weight3 * self.center_mask3  # shape: input_dim x latent_dim.input_dim x kernel x kernel
+
+            # shape: 1 x latent_dim x input_dim x input_dim x kernel x kernel
+            center1 = center1.view(self.latent_dim, self.input_dim, self.input_dim,
+                                   center1.shape[-2], center1.shape[-1]).unsqueeze(0)
+            # shape: latent_dim x 1 x input_dim x input_dim x kernel x kernel
+            center3 = center3.view(self.input_dim, self.latent_dim, self.input_dim, center3.shape[-2],
+                                   center3.shape[-1]).permute(1, 0, 2, 3, 4).unsqueeze(1)
+
+            sign_prods = torch.sign(center1) * torch.sign(center3)
+            center2 = self.weight2 * self.center_mask2  # shape: latent_dim.input_dim x latent_dim.input_dim x kernel x kernel
+            center2 = center2.view(self.latent_dim, self.input_dim, self.latent_dim, self.input_dim,
+                                   center2.shape[-2], center2.shape[-1])
+
+            center2 = center2.permute(0, 2, 1, 3, 4, 5)
+            center2 = sign_prods * torch.abs(center2)
+            center2 = center2.permute(0, 2, 1, 3, 4, 5).contiguous().view_as(self.weight2)
+            masked_weight2 = (center2 * self.center_mask2 + self.weight2 * (1. - self.center_mask2)) * self.mask2
+
+            shared_t = torch.max(torch.abs(self.t), torch.tensor(1e-12, device=z.device))
+
+            kernel_mid_y, kernel_mid_x = masked_weight1.shape[-2] // 2, masked_weight1.shape[-1] // 2
+            diag1_share = torch.diagonal(
+                masked_weight1[..., kernel_mid_y, kernel_mid_x].view(self.latent_dim, self.input_dim,
+                                                                     self.input_dim),
                 dim1=-2, dim2=-1)[None, :, :, None, None]  # shape: 1 x latent_dim x input_dim x 1 x 1
 
             kernel_mid_y, kernel_mid_x = masked_weight2.shape[-2] // 2, masked_weight2.shape[-1] // 2
