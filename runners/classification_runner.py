@@ -104,8 +104,8 @@ class ClassificationRunner(object):
                                  num_workers=4, drop_last=True)
         test_iter = iter(test_loader)
 
-        net = Net(self.config).to(self.config.device)
-        # net = ResNet(self.config).to(self.config.device)
+        # net = Net(self.config).to(self.config.device)
+        net = ResNet(self.config).to(self.config.device)
         net = torch.nn.DataParallel(net)
         optimizer = self.get_optimizer(net.parameters())
 
@@ -200,10 +200,10 @@ class ClassificationRunner(object):
                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
             ])
             if self.config.data.dataset == 'CIFAR10':
-                test_dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=True, download=True,
+                test_dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=False, download=True,
                                        transform=transform_test)
             elif self.config.data.dataset == 'CIFAR100':
-                test_dataset = CIFAR100(os.path.join(self.args.run, 'datasets', 'cifar100'), train=True, download=True,
+                test_dataset = CIFAR100(os.path.join(self.args.run, 'datasets', 'cifar100'), train=False, download=True,
                                        transform=transform_test)
 
         elif self.config.data.dataset == 'MNIST':
@@ -212,7 +212,7 @@ class ClassificationRunner(object):
                 transforms.Normalize((0.5,), (0.5,))
             ])
 
-            test_dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist_test'), train=False, download=True,
+            test_dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist_test'), train=True, download=True,
                                  transform=transform)
 
         elif self.config.data.dataset == 'CELEBA':

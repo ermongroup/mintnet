@@ -5,7 +5,7 @@ training:
   batch_size: 32
   log_interval: 10
 #  snapshot_interval: 10 # cifar-10
-  snapshot_interval: 10000 # imagenet
+  snapshot_interval: 5000 # imagenet
 
 data:
   #  dataset: MNIST

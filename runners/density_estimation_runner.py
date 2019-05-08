@@ -208,9 +208,21 @@ class DensityEstimationRunner(object):
                                                                                         test_loss.item()))
                 step += 1
 
-            if self.config.data.dataset == 'ImageNet':
-                scheduler.step()
-                if step % self.config.training.snapshot_interval == 0:
+                if self.config.data.dataset == 'ImageNet':
+                    scheduler.step()
+                    if step % self.config.training.snapshot_interval == 0:
+                        states = [
+                            net.state_dict(),
+                            optimizer.state_dict(),
+                            epoch + 1,
+                            step,
+                            scheduler.state_dict()
+                        ]
+                        torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
+                                                        'checkpoint_batch_{}.pth'.format(step)))
+                        torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))
+
+                if step == self.config.training.maximum_steps:
                     states = [
                         net.state_dict(),
                         optimizer.state_dict(),
@@ -219,22 +231,10 @@ class DensityEstimationRunner(object):
                         scheduler.state_dict()
                     ]
                     torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
-                                                    'checkpoint_batch_{}.pth'.format(epoch + 1)))
+                                                    'checkpoint_last_batch.pth'))
                     torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))
 
-            if step == self.config.training.maximum_steps:
-                states = [
-                    net.state_dict(),
-                    optimizer.state_dict(),
-                    epoch + 1,
-                    step,
-                    scheduler.state_dict()
-                ]
-                torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
-                                                'checkpoint_last_batch.pth'.format(epoch + 1)))
-                torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))
-
-                return 0
+                    return 0
 
             if self.config.data.dataset != 'ImageNet' and (epoch + 1) % self.config.training.snapshot_interval == 0:
                 states = [
