@@ -1,8 +1,6 @@
 import numpy as np
 import h5py
 
-import datasets
-
 
 class BSDS300:
     """
@@ -18,9 +16,9 @@ class BSDS300:
             self.x = data[:]
             self.N = self.x.shape[0]
 
-    def __init__(self):
+    def __init__(self, root):
         # load dataset
-        f = h5py.File(datasets.root + 'BSDS300/BSDS300.hdf5', 'r')
+        f = h5py.File(root + 'BSDS300/BSDS300.hdf5', 'r')
 
         self.trn = self.Data(f['train'])
         self.val = self.Data(f['validation'])
