@@ -62,3 +62,42 @@ class ImageNet(Dataset):
 
     def __len__(self):
         return len(self.data)
+
+
+class OordImageNet(Dataset):
+
+    def __init__(self, root, train=True, transform=None, target_transform=None):
+        super().__init__()
+        self.root = os.path.expanduser(root)
+        self.transform = transform
+        self.target_transform = target_transform
+        self.train = train  # training set or test set
+
+        if self.train:
+            self.data = np.load(os.path.join(root, 'train_32x32.npy'))
+        else:
+            self.data = np.load(os.path.join(root, 'valid_32x32.npy'))
+
+        self.labels = np.zeros((self.data.shape[0])) / 0.
+
+    def __getitem__(self, index):
+        """
+        Args:
+            index (int): Index
+
+        Returns:
+            tuple: (image, target) where target is index of the target class.
+        """
+        img = self.data[index]
+
+        # doing this so that it is consistent with all other datasets
+        # to return a PIL Image
+        img = Image.fromarray(img)
+
+        if self.transform is not None:
+            img = self.transform(img)
+
+        return img, self.labels[index]
+
+    def __len__(self):
+        return len(self.data)

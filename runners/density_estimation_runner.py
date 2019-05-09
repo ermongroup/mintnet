@@ -12,7 +12,7 @@ import torch.optim as optim
 import os
 from models.cnn_flow import DataParallelWithSampling
 from torchvision.utils import save_image, make_grid
-from datasets.imagenet import ImageNet
+from datasets.imagenet import OordImageNet
 import torch.autograd as autograd
 import torch
 import tqdm
@@ -97,8 +97,8 @@ class DensityEstimationRunner(object):
             test_dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist_test'), train=False, download=True,
                                  transform=test_transform)
         elif self.config.data.dataset == 'ImageNet':
-            dataset = ImageNet('/atlas/u/yangsong/datasets/imagenet', train=True, transform=train_transform)
-            test_dataset = ImageNet('/atlas/u/yangsong/datasets/imagenet', train=False, transform=test_transform)
+            dataset = OordImageNet('/atlas/u/yangsong/datasets/oord_imagenet', train=True, transform=train_transform)
+            test_dataset = OordImageNet('/atlas/u/yangsong/datasets/oord_imagenet', train=False, transform=test_transform)
 
         dataloader = DataLoader(dataset, batch_size=self.config.training.batch_size, shuffle=True, num_workers=4,
                                 drop_last=True)
