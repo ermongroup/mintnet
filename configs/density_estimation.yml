@@ -1,57 +1,75 @@
 training:
-  #  n_epochs: 200 # cifar-10
-  n_epochs: 15 # imagenet
+  n_epochs: 200 # cifar-10
+  #n_epochs: 15 # imagenet
   maximum_steps: 350000 # imagenet
   batch_size: 32
   log_interval: 10
-#  snapshot_interval: 10 # cifar-10
-  snapshot_interval: 5000 # imagenet
+  snapshot_interval: 10 # cifar-10
+  #snapshot_interval: 5000 # imagenet
 
 data:
-  #  dataset: MNIST
-  #  lambda_logit: 0.000001
-  #  image_size: 28
-  #  channels: 1
-  #  horizontal_flip: false
-#  dataset: CIFAR10
-#  image_size: 32
-#  lambda_logit: 0.05
-#  channels: 3
-#  horizontal_flip: true
+#  dataset: MNIST
+#  lambda_logit: 0.000001
+#  image_size: 28
+#  channels: 1
+#  horizontal_flip: false
 
-  dataset: ImageNet
+  dataset: CIFAR10
   image_size: 32
   lambda_logit: 0.05
   channels: 3
   horizontal_flip: false
 
+#  dataset: ImageNet
+#  image_size: 32
+#  lambda_logit: 0.05
+#  channels: 3
+#  horizontal_flip: false
+
 
 model:
-  ## mnist model
-  #  n_layers: 20
-  #  latent_size: 64
-  #  n_subsampling: 2
-  #  act_norm: false
-  #  rgb_last: true
-  #  batch_norm: false
-  #  zero_init_start: 100
+#  # mnist model
+#  n_layers: 20
+#  latent_size: 45
+#  n_subsampling: 2
+#  act_norm: false
+#  rgb_last: true
+#  batch_norm: false
+#  zero_init_start: 100
+
+#  ## cifar10 model
+#  n_layers: 21
+#  latent_size: 85
+#  n_subsampling: 2
+#  act_norm: false
+#  batch_norm: false
+#  rgb_last: true
+#  zero_init_start: 12
 
   ## cifar10 model
-  n_layers: 21
+  n_layers: 30 #10 #21
   latent_size: 85
   n_subsampling: 2
   act_norm: false
   batch_norm: false
   rgb_last: true
-  zero_init_start: 12
+  zero_init_start: 12 #12
 
   # for sampling
-  n_iters: 100
+  n_iters: 100 #120
 
 optim:
   optimizer: Adam
-  lr: 0.001
+  lr: 0.0005  #0.001 change it back (flip might need smaller lr)
   beta1: 0.9
-  weight_decay: 0
+  weight_decay: 0.0005 #0
   amsgrad: true
   adam_eps: 0.0001
+
+analysis:
+  newton_iter: 350 #21
+  newton_lr: 3.5 #3.5 #1.1 #1.15 #3.5 #1.1
+  interval: 0.05
+  lower_bound: 1.05
+  upper_bound: 1.25
+

@@ -104,8 +104,8 @@ class ClassificationRunner(object):
                                  num_workers=4, drop_last=True)
         test_iter = iter(test_loader)
 
-        # net = Net(self.config).to(self.config.device)
-        net = ResNet(self.config).to(self.config.device)
+        net = Net(self.config).to(self.config.device)
+        #net = ResNet(self.config).to(self.config.device)
         net = torch.nn.DataParallel(net)
         optimizer = self.get_optimizer(net.parameters())
 

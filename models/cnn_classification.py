@@ -46,7 +46,7 @@ class BasicBlock(nn.Module):
         bound = 1 / math.sqrt(fan_in)
         init.uniform_(bias, -bound, bound)
 
-    def __init__(self, config, shape, latent_dim, type, input_dim=3, kernel1=3, kernel2=3, kernel3=3, init_zero=False):
+    def __init__(self, config, shape, latent_dim, type, input_dim=3, kernel1=3, kernel2=1, kernel3=3, init_zero=False):
         super().__init__()
         self.input_dim = input_dim
         self.latent_dim = latent_dim
@@ -192,7 +192,6 @@ class BasicBlock(nn.Module):
         t = torch.max(torch.abs(self.t), torch.tensor(1e-12, device=x.device))
 
         output = latent_output + t * x
-
         return output
 
 

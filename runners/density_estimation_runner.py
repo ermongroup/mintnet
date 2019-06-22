@@ -15,7 +15,12 @@ from torchvision.utils import save_image, make_grid
 from datasets.imagenet import OordImageNet
 import torch.autograd as autograd
 import torch
+import matplotlib.pyplot as plt
 import tqdm
+import seaborn as sns
+import  math
+import pickle
+sns.set()
 
 
 class DensityEstimationRunner(object):
@@ -275,6 +280,10 @@ class DensityEstimationRunner(object):
             return images
 
     def test(self):
+        import time
+        torch.cuda.synchronize()
+        start_time = time.time()
+
         transform = transforms.Compose([
             transforms.Resize(self.config.data.image_size),
             transforms.ToTensor()
@@ -288,7 +297,8 @@ class DensityEstimationRunner(object):
                                  transform=transform)
 
         elif self.config.data.dataset == 'ImageNet':
-            test_dataset = ImageNet('/atlas/u/yangsong/datasets/imagenet', train=False, transform=transform)
+            test_dataset = OordImageNet('/atlas/u/yangsong/datasets/oord_imagenet', train=False, transform=transform)
+                #ImageNet('/atlas/u/yangsong/datasets/imagenet', train=False, transform=transform)
 
         elif self.config.data.dataset == 'CELEBA':
             dataset = ImageFolder(root=os.path.join(self.args.run, 'datasets', 'celeba'),
@@ -341,12 +351,22 @@ class DensityEstimationRunner(object):
         total_n_data = 0
 
         logging.info("Generating samples")
-        z = torch.randn(100, self.config.data.channels * self.config.data.image_size * self.config.data.image_size,
-                        device=self.config.device)
+        ## samples = []
+        ## for i in range(4):
+        ##     z = torch.randn(100, self.config.data.channels * self.config.data.image_size * self.config.data.image_size,
+        ##                     device=self.config.device)
+        ##     samples_temp = net.sampling(z)
+        ##     samples_temp = self.sigmoid_transform(samples_temp)
+        ##     samples.append(samples_temp)
+        ## samples = torch.cat(samples, dim=0)
+
+        z = torch.randn(64, self.config.data.channels * self.config.data.image_size * self.config.data.image_size,
+                       device=self.config.device)
         samples = net.sampling(z)
         samples = self.sigmoid_transform(samples)
-        samples = make_grid(samples, 10)
-        save_image(samples, 'samples.png')
+
+        samples = make_grid(samples, 8)
+        save_image(samples, 'samples_cifar10_30.png')
 
         logging.info("Calculating overall bpd")
 
@@ -371,3 +391,468 @@ class DensityEstimationRunner(object):
         logging.info(
             "Total batch:{}\nTotal loss: {}\nTotal bpd: {}".format(batch_idx + 1, total_loss.item() / total_n_data,
                                                                    total_bpd.item() / total_n_data))
+
+        torch.cuda.synchronize()
+        time_taken = time.time() - start_time
+        print("Run-Time: %.4f s" % time_taken)
+
+
+    def invert_experiment(self):
+        transform = transforms.Compose([
+            transforms.Resize(self.config.data.image_size),
+            transforms.ToTensor()
+        ])
+
+        if self.config.data.dataset == 'CIFAR10':
+            dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=True, download=True,
+                              transform=transform)
+
+        elif self.config.data.dataset == 'MNIST':
+            dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist'), train=True, download=True,
+                            transform=transform)
+
+        elif self.config.data.dataset == 'ImageNet':
+            dataset = OordImageNet('/atlas/u/yangsong/datasets/oord_imagenet', train=False, transform=transform)
+
+
+        dataloader = DataLoader(dataset, batch_size=10, shuffle=True, num_workers=4,
+                                drop_last=True)
+
+        net = Net(self.config).to(self.config.device)
+        net = DataParallelWithSampling(net)
+        states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'),
+                            map_location=self.config.device)
+
+        state_dict = {}
+        layer_stop = 0
+        key_set = states[0].keys()
+        for k in key_set:
+            string = 'module.layers.'
+            start = len(string)
+            key = k[start:]
+            end = key.find(".")
+            index = int(key[:end])
+            if index <= layer_stop:
+                state_dict[k] = states[0][k]
+
+
+        net.load_state_dict(states[0])
+        loaded_epoch = states[2]
+
+        logging.info(
+            "Loading the model from epoch {}".format(loaded_epoch))
+
+        with torch.no_grad():
+            for batch_idx, (data, _) in enumerate(dataloader):
+                if batch_idx < 3:
+                    continue
+                data = data.to(self.config.device)
+                data_img = make_grid(data, 10)
+                save_image(data_img, 'ground_truth_imagenet_n.png')
+                data = data * 255. / 256.
+                noise = torch.rand_like(data) / 256.
+                data += noise
+                data = self.logit_transform(data)
+                output, log_det = net.forward(data)
+                samples = net.sampling(output)
+                samples = self.sigmoid_transform(samples)
+                samples -= noise
+                samples = samples * 256. / 255.
+                samples = make_grid(samples, 10)
+                save_image(samples, 'invert_results_imagenet_n.png')
+                break
+
+        # only inverse the last layer
+
+    def newton_analysis(self):
+        transform = transforms.Compose([
+            transforms.Resize(self.config.data.image_size),
+            transforms.ToTensor()
+        ])
+        if self.config.data.dataset == 'CIFAR10':
+            dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=True, download=True,
+                              transform=transform)
+
+        elif self.config.data.dataset == 'MNIST':
+            dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist'), train=True, download=True,
+                            transform=transform)
+
+        elif self.config.data.dataset == 'ImageNet':
+            dataset = OordImageNet('/atlas/u/yangsong/datasets/oord_imagenet', train=False, transform=transform)
+
+        dataloader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4,
+                                drop_last=True)
+
+        net = Net(self.config).to(self.config.device)
+        net = DataParallelWithSampling(net)
+        optimizer = self.get_optimizer(net.parameters())
+        states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'),
+                            map_location=self.config.device)
+
+        net.load_state_dict(states[0])
+        optimizer.load_state_dict(states[1])
+        loaded_epoch = states[2]
+        logging.info(
+            "Loading the model from epoch {}".format(loaded_epoch))
+
+        # for batch_idx, (data, _) in enumerate(dataloader):
+        #     if batch_idx == 0:
+        #         continue
+        #     data = data.to(self.config.device) * 255. / 256.
+        #     data += torch.rand_like(data) / 256.
+        #     data = self.logit_transform(data)
+        #     break
+
+        val = []
+        y1 = []
+        y2 = []
+        results = {}
+        #output, log_det = net(data)
+        newton_iter = self.config.analysis.newton_iter
+        standard_deviation = []
+        # for lr in np.arange(self.config.analysis.lower_bound, self.config.analysis.upper_bound,
+        #                       self.config.analysis.interval):
+            #print("lr ", lr)
+            #self.config.analysis.newton_lr = lr
+
+        for i in range(newton_iter):
+            with torch.no_grad():
+                if i % 10 != 0:
+                    continue
+                self.config.model.n_iters = i + 1
+                print('iteration: {}'.format(self.config.model.n_iters))
+                diff_array = []
+                for b in range(4):
+                    for batch_idx, (data, _) in enumerate(dataloader):
+                        if batch_idx != b:
+                            continue
+                        data = data.to(self.config.device) * 255. / 256.
+                        data += torch.rand_like(data) / 256.
+                        data = self.logit_transform(data)
+                        break
+                    output, log_det = net(data)
+                    inverse = net.sampling(output)
+                    diff = (inverse - data).view(data.shape[0], -1)
+                    diff_array.append(diff)
+
+                diff = torch.cat(diff_array, dim=0)
+                size = np.prod(data.shape)
+                l2 = torch.log(torch.sqrt((diff.pow(2).sum(dim=-1))) / diff.shape[-1])
+                std = l2.std(dim=0) #/ diff.shape[-1]
+                diff = l2.mean(dim=0)#l2.sum(dim=0) #/ size
+
+                #print(diff.data)
+                val.append(np.exp(diff.item()))
+                y1.append(np.exp(diff.item() - std.item()))
+                y2.append(np.exp(diff.item() + std.item()))
+                standard_deviation.append(std.item())
+                #if diff.data < 1e-6:
+                    #results[lr] = [diff.data, i]
+                    #break
+        #print(results)
+        #return
+
+        sns.set(style='darkgrid')
+        x = np.arange(0, newton_iter, 10) + 1
+        plt.xticks(np.arange(min(x) - 1, max(x) + 1, 50)) #100))
+        plt.yscale('log')
+        #plt.yscale('symlog')
+        mnist, = plt.plot(x, val, label='MNIST', linewidth=2.)
+        #print(val)
+        plt.fill_between(x, y1, y2, alpha=0.35)
+        #plt.legend(handles=[mnist])
+        #print(standard_deviation)
+        with open("MNIST_val", 'wb') as pfile:
+            pickle.dump(val, pfile, protocol=pickle.HIGHEST_PROTOCOL)
+
+        with open("MNIST_y1", 'wb') as pfile:
+            pickle.dump(y1, pfile, protocol=pickle.HIGHEST_PROTOCOL)
+
+        with open("MNIST_y2", 'wb') as pfile:
+            pickle.dump(y2, pfile, protocol=pickle.HIGHEST_PROTOCOL)
+
+        # plot cifar10
+        self.config.model.n_layers = 21
+        self.config.model.latent_size = 85
+        self.config.data.dataset = "CIFAR10"
+        self.config.data.image_size = 32
+        self.config.data.channels = 3
+        self.config.data.lambda_logit = 0.05
+        self.config.analysis.newton_lr = 1.1
+
+        train_transform = transforms.Compose([
+            transforms.Resize(self.config.data.image_size),
+            transforms.ToTensor()
+        ])
+
+        dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=True, download=True,
+                          transform=train_transform)
+        dataloader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4,
+                                drop_last=True)
+
+        net = Net(self.config).to(self.config.device)
+        net = DataParallelWithSampling(net)
+        optimizer = self.get_optimizer(net.parameters())
+        states = torch.load(os.path.join(self.args.run, 'logs', 'density_cifar10_21x85_nozeroinit', 'checkpoint.pth'),
+                            map_location=self.config.device)
+
+        net.load_state_dict(states[0])
+        optimizer.load_state_dict(states[1])
+        loaded_epoch = states[2]
+        logging.info(
+            "Loading the model from epoch {}".format(loaded_epoch))
+
+        val = []
+        y1 = []
+        y2 = []
+        newton_iter = self.config.analysis.newton_iter
+        standard_deviation = []
+        for i in range(newton_iter):
+            with torch.no_grad():
+                if i % 10 != 0:
+                    continue
+                self.config.model.n_iters = i + 1
+                print('iteration: {}'.format(self.config.model.n_iters))
+                diff_array = []
+                for b in range(4):
+                    for batch_idx, (data, _) in enumerate(dataloader):
+                        if batch_idx != b:
+                            continue
+                        data = data.to(self.config.device) * 255. / 256.
+                        data += torch.rand_like(data) / 256.
+                        data = self.logit_transform(data)
+                        break
+                    output, log_det = net(data)
+                    inverse = net.sampling(output)
+                    diff = (inverse - data).view(data.shape[0], -1)
+                    diff_array.append(diff)
+
+                diff = torch.cat(diff_array, dim=0)
+                l2 = torch.log(torch.sqrt((diff.pow(2).sum(dim=-1))) / diff.shape[-1])
+                std = l2.std(dim=0)
+                diff = l2.mean(dim=0)
+
+                print(diff.data)
+                val.append(np.exp(diff.item()))
+                y1.append(np.exp(diff.item() - std.item()))
+                y2.append(np.exp(diff.item() + std.item()))
+                standard_deviation.append(std.item())
+
+        # for batch_idx, (data, _) in enumerate(dataloader):
+        #     if batch_idx == 0:
+        #         continue
+        #     data = data.to(self.config.device) * 255. / 256.
+        #     data += torch.rand_like(data) / 256.
+        #     data = self.logit_transform(data)
+        #     break
+        #
+        # val = []
+        # output, log_det = net(data)
+        # newton_iter = self.config.analysis.newton_iter
+        # for i in range(newton_iter):
+        #     with torch.no_grad():
+        #         if i % 10 != 0:
+        #             continue
+        #         self.config.model.n_iters = i + 1
+        #         print('iteration: {}'.format(self.config.model.n_iters))
+        #         inverse = net.sampling(output)
+        #         reconstruct_output, _ = net.forward(inverse)
+        #         size = np.prod(reconstruct_output.shape)
+        #         diff = torch.sqrt(torch.sum((reconstruct_output - output).pow(2))) / size
+        #         print(diff.data)
+        #         val.append(diff.data)
+
+        x = np.arange(0, newton_iter, 10) + 1
+        plt.xticks(np.arange(min(x) - 1, max(x) + 1, 50))
+        plt.yscale('log')
+        cifar10, = plt.plot(x, val, label='CIFAR-10', linewidth=2.)
+        plt.fill_between(x, y1, y2, alpha=0.35)
+        with open("CIFAR10_val", 'wb') as pfile:
+            pickle.dump(val, pfile, protocol=pickle.HIGHEST_PROTOCOL)
+        with open("CIFAR10_y1", 'wb') as pfile:
+            pickle.dump(y1, pfile, protocol=pickle.HIGHEST_PROTOCOL)
+        with open("CIFAR10_y2", 'wb') as pfile:
+            pickle.dump(y2, pfile, protocol=pickle.HIGHEST_PROTOCOL)
+        #plt.legend(handles=[cifar10])
+
+        # plot imagenet
+        self.config.model.n_layers = 21
+        self.config.model.latent_size = 85
+        self.config.data.dataset = "ImageNet"
+        self.config.data.image_size = 32
+        self.config.data.channels = 3
+        self.config.data.lambda_logit = 0.05
+        self.config.analysis.newton_lr = 1.15
+
+        train_transform = transforms.Compose([
+            transforms.Resize(self.config.data.image_size),
+            transforms.ToTensor()
+        ])
+
+        dataset = OordImageNet('/atlas/u/yangsong/datasets/oord_imagenet', train=False,
+                                         transform=train_transform)
+        dataloader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4,
+                                drop_last=True)
+
+        net = Net(self.config).to(self.config.device)
+        net = DataParallelWithSampling(net)
+        optimizer = self.get_optimizer(net.parameters())
+        states = torch.load(os.path.join(self.args.run, 'logs', 'copy_imagenet', 'checkpoint.pth'),
+                            map_location=self.config.device)
+
+        net.load_state_dict(states[0])
+        optimizer.load_state_dict(states[1])
+        loaded_epoch = states[2]
+        logging.info(
+            "Loading the model from epoch {}".format(loaded_epoch))
+
+        val = []
+        y1 = []
+        y2 = []
+        newton_iter = self.config.analysis.newton_iter
+        standard_deviation = []
+
+        for i in range(newton_iter):
+            with torch.no_grad():
+                if i % 10 != 0:
+                    continue
+                self.config.model.n_iters = i + 1
+                print('iteration: {}'.format(self.config.model.n_iters))
+                diff_array = []
+
+                for b in range(4):
+                    for batch_idx, (data, _) in enumerate(dataloader):
+                        if batch_idx != b:
+                            continue
+                        data = data.to(self.config.device) * 255. / 256.
+                        data += torch.rand_like(data) / 256.
+                        data = self.logit_transform(data)
+                        break
+                    output, log_det = net(data)
+                    inverse = net.sampling(output)
+                    diff = (inverse - data).view(data.shape[0], -1)
+                    diff_array.append(diff)
+
+                diff = torch.cat(diff_array, dim=0)
+                l2 = torch.log(torch.sqrt((diff.pow(2).sum(dim=-1))) / diff.shape[-1])
+                std = l2.std(dim=0)
+                diff = l2.mean(dim=0)
+
+                #print(diff.data)
+                val.append(np.exp(diff.item()))
+                y1.append(np.exp(diff.item() - std.item()))
+                y2.append(np.exp(diff.item() + std.item()))
+                standard_deviation.append(std.item())
+
+
+
+        # for batch_idx, (data, _) in enumerate(dataloader):
+        #     if batch_idx == 0:
+        #         continue
+        #     data = data.to(self.config.device) * 255. / 256.
+        #     data += torch.rand_like(data) / 256.
+        #     data = self.logit_transform(data)
+        #     break
+        #
+        # val = []
+        # output, log_det = net(data)
+        # newton_iter = self.config.analysis.newton_iter
+        # for i in range(newton_iter):
+        #     with torch.no_grad():
+        #         if i % 10 != 0:
+        #             continue
+        #         self.config.model.n_iters = i + 1
+        #         print('iteration: {}'.format(self.config.model.n_iters))
+        #         inverse = net.sampling(output)
+        #         reconstruct_output, _ = net.forward(inverse)
+        #         size = np.prod(reconstruct_output.shape)
+        #         diff = torch.sqrt(torch.sum((reconstruct_output - output).pow(2))) / size
+        #         print(diff.data)
+        #         val.append(diff.data)
+
+        x = np.arange(0, newton_iter, 10) + 1
+        plt.xticks(np.arange(min(x) - 1, max(x) + 1, 50))
+        plt.yscale('log')
+        imagenet, = plt.plot(x, val, label=r'ImageNet 32$\times$32', linewidth=2.)
+        plt.fill_between(x, y1, y2, alpha=0.35)
+        with open("Imagenet_val", 'wb') as pfile:
+            pickle.dump(val, pfile, protocol=pickle.HIGHEST_PROTOCOL)
+        with open("Imagenet_y1", 'wb') as pfile:
+            pickle.dump(y1, pfile, protocol=pickle.HIGHEST_PROTOCOL)
+        with open("Imagenet_y2", 'wb') as pfile:
+            pickle.dump(y2, pfile, protocol=pickle.HIGHEST_PROTOCOL)
+        #plt.legend(handles=[imagenet])
+
+
+        plt.xlabel("Number of Iterations")
+        plt.ylabel(r'Normalized  $L_2$ Rec. Error')  # "Normalized L2 Rec. Error")
+        plt.legend(handles=[mnist, cifar10, imagenet])
+        plt.savefig('newton_analysis')
+
+
+
+    def interpolation(self):
+        transform = transforms.Compose([
+            transforms.Resize(self.config.data.image_size),
+            transforms.ToTensor()
+        ])
+
+        if self.config.data.dataset == 'CIFAR10':
+            dataset = CIFAR10(os.path.join(self.args.run, 'datasets', 'cifar10'), train=True, download=True,
+                              transform=transform)
+        elif self.config.data.dataset == 'MNIST':
+            dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist'), train=True, download=True,
+                            transform=transform)
+
+        elif self.config.data.dataset == 'ImageNet':
+            dataset = OordImageNet('/atlas/u/yangsong/datasets/oord_imagenet', train=False, transform=transform)
+
+        dataloader = DataLoader(dataset, batch_size=50, shuffle=True, num_workers=4,
+                                drop_last=True)
+
+        net = Net(self.config).to(self.config.device)
+        net = DataParallelWithSampling(net)
+        optimizer = self.get_optimizer(net.parameters())
+        states = torch.load(os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'),
+                            map_location=self.config.device)
+        net.load_state_dict(states[0])
+        optimizer.load_state_dict(states[1])
+        loaded_epoch = states[2]
+        logging.info(
+            "Loading the model from epoch {}".format(loaded_epoch))
+
+        def linear_interpolation(x1, x2, x3, x4, phi, phi_p, net):
+            with torch.no_grad():
+                z1, _ = net.forward(x1)
+                z2, _ = net.forward(x2)
+                z3, _ = net.forward(x3)
+                z4, _ = net.forward(x4)
+                z = math.cos(phi) * (math.cos(phi_p) * z1 + math.sin(phi_p) * z2) + \
+                    math.sin(phi) * (math.cos(phi_p) * z3 + math.sin(phi_p) * z4)
+                x = net.sampling(z)
+                x = self.sigmoid_transform(x)
+            return x
+
+
+        for batch_idx, (data, _) in enumerate(dataloader):
+            data = data.to(self.config.device)
+            images = torch.zeros((64, *data[0].shape))
+            data = data * 255. / 256.
+            data += torch.rand_like(data) / 256.
+            data = self.logit_transform(data)
+            x1 = data[3].unsqueeze(dim=0)
+            x2 = data[15].unsqueeze(dim=0)
+            x3 = data[32].unsqueeze(dim=0)
+            x4 = data[17].unsqueeze(dim=0)
+
+            for i in range(8):
+                for j in range(8):
+                    phi = math.pi * i / 14.
+                    phi_p = math.pi * j / 14.
+                    xt = linear_interpolation(x1, x2, x3, x4, phi, phi_p, net)
+                    images[i*8+j] = xt.squeeze(dim=0)
+            images = make_grid(images, 8)
+            save_image(images, 'interpolation.png')
+            break
+
+

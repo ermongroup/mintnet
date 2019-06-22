@@ -15,6 +15,8 @@ import pdb
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()['__doc__'])
 
+    #parser.add_argument('--runner', type=str, default='TabularRunner', help='The runner to execute')
+    #parser.add_argument('--config', type=str, default='tabular_density_estimation.yml', help='Path to the config file')
     # parser.add_argument('--runner', type=str, default='SynDensityEstimationRunner', help='The runner to execute')
     # parser.add_argument('--config', type=str, default='syn_density_estimation.yml', help='Path to the config file')
     parser.add_argument('--runner', type=str, default='DensityEstimationRunner', help='The runner to execute')
@@ -27,6 +29,9 @@ def parse_args_and_config():
     parser.add_argument('--verbose', type=str, default='info', help='Verbose level: info | debug | warning | critical')
     parser.add_argument('--test', action='store_true', help='Whether to test the model')
     parser.add_argument('--resume_training', action='store_true', help='Whether to resume training')
+    parser.add_argument('--invert_test', action='store_true', help='Whether to test invert of the model')
+    parser.add_argument('--newton', action='store_true', help='Whether to perform newton analysis of the model')
+    parser.add_argument('--interpolation', action='store_true', help='Whether to interpolate the model')
 
     args = parser.parse_args()
     run_id = str(os.getpid())
@@ -39,7 +44,7 @@ def parse_args_and_config():
         config = yaml.load(f)
     new_config = dict2namespace(config)
 
-    if not args.test:
+    if (not args.test) and (not args.invert_test) and (not args.newton) and (not args.interpolation):
         if not args.resume_training:
             if os.path.exists(args.log):
                 shutil.rmtree(args.log)
@@ -113,10 +118,18 @@ def main():
 
     try:
         runner = eval(args.runner)(args, config)
-        if not args.test:
-            runner.train()
+        if args.invert_test:
+            runner.invert_experiment()
+        elif args.newton:
+            runner.newton_analysis()
+        elif args.interpolation:
+            runner.interpolation()
         else:
-            runner.test()
+            if not args.test:
+                runner.train()
+
+            else:
+                runner.test()
     except:
         logging.error(traceback.format_exc())
 

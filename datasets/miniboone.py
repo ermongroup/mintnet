@@ -2,24 +2,43 @@ import numpy as np
 
 
 class MINIBOONE:
-
     class Data:
-
         def __init__(self, data):
-
             self.x = data.astype(np.float32)
             self.N = self.x.shape[0]
 
-    def __init__(self, root):
 
-        file = root + 'miniboone/data.npy'
+    def __init__(self, root_dir, train=True):
+        self.train = train
+        file = root_dir + 'miniboone/data.npy'
         trn, val, tst = load_data_normalised(file)
-
         self.trn = self.Data(trn)
         self.val = self.Data(val)
         self.tst = self.Data(tst)
 
-        self.n_dims = self.trn.x.shape[1]
+    def __len__(self):
+        if self.train:
+            return self.trn.N
+        else:
+            return self.tst.N
+
+    def __getitem__(self, idx):
+        if self.train:
+            return self.trn.x[index]
+        else:
+            return self.tst.x[inedx]
+
+
+    # def __init__(self, root):
+    #
+    #     file = root + 'miniboone/data.npy'
+    #     trn, val, tst = load_data_normalised(file)
+    #
+    #     self.trn = self.Data(trn)
+    #     self.val = self.Data(val)
+    #     self.tst = self.Data(tst)
+    #
+    #     self.n_dims = self.trn.x.shape[1]
 
 
 def load_data(root_path):
