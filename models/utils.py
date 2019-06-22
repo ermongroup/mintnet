@@ -70,7 +70,7 @@ class EMAHelper(object):
             module = module.module
         for name, param in module.named_parameters():
             if param.requires_grad:
-                self.shadow[name] = torch.zeros_like(param, requires_grad=False)
+                self.shadow[name] = param.data.clone()
 
     def update(self, module):
         if isinstance(module, nn.DataParallel):
