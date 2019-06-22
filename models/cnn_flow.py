@@ -426,10 +426,10 @@ class BasicBlock(nn.Module):
                                center2.shape[-2], center2.shape[-1])
 
         center2 = center2.permute(0, 2, 1, 3, 4, 5)
-        center2 = sign_prods * torch.abs(center2) #original one
+        #center2 = sign_prods * torch.abs(center2) #original one
         # import pdb
         # pdb.set_trace()
-        #center2 = sign_prods[..., self.kernel3//2, self.kernel1//2].unsqueeze(-1).unsqueeze(-1) * torch.abs(center2)
+        center2 = sign_prods[..., self.kernel3//2, self.kernel1//2].unsqueeze(-1).unsqueeze(-1) * torch.abs(center2)
         center2 = center2.permute(0, 2, 1, 3, 4, 5).contiguous().view_as(self.weight2)
 
         masked_weight2 = (center2 * self.center_mask2 + self.weight2 * (1. - self.center_mask2)) * self.mask2
