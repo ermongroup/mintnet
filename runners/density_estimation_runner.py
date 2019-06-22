@@ -20,6 +20,7 @@ import tqdm
 import seaborn as sns
 import  math
 import pickle
+from models.utils import EMAHelper
 sns.set()
 
 
@@ -113,6 +114,8 @@ class DensityEstimationRunner(object):
 
         net = Net(self.config).to(self.config.device)
         net = DataParallelWithSampling(net)
+        ema_helper = EMAHelper(mu=0.999)
+        ema_helper.register(net)
 
         optimizer = self.get_optimizer(net.parameters())
 
@@ -120,7 +123,7 @@ class DensityEstimationRunner(object):
         if os.path.exists(tb_path):
             shutil.rmtree(tb_path)
 
-        tb_logger = tensorboardX.SummaryWriter(log_dir=tb_path)
+        tb_logger = tensorboardX.SummaryWriter(logdir=tb_path)
 
         def flow_loss(u, log_jacob, size_average=True):
             log_probs = (-0.5 * u.pow(2) - 0.5 * np.log(2 * np.pi)).sum()
@@ -178,36 +181,40 @@ class DensityEstimationRunner(object):
                     return 0
 
                 optimizer.step()
+                ema_helper.update(net)
 
                 bpd = (loss.item() * data.shape[0] - log_det_logit) / (np.log(2) * np.prod(data.shape)) + 8
 
                 # validation
-                net.eval()
-                with torch.no_grad():
-                    try:
-                        test_data, _ = next(test_iter)
-                    except StopIteration:
-                        test_iter = iter(test_loader)
-                        test_data, _ = next(test_iter)
-
-                    test_data = test_data.to(self.config.device) * 255. / 256.
-                    test_data += torch.rand_like(test_data) / 256.
-                    test_data = self.logit_transform(test_data)
-
-                    test_log_det_logit = F.softplus(-test_data).sum() + F.softplus(test_data).sum() + np.prod(
-                        test_data.shape) * np.log(1 - 2 * self.config.data.lambda_logit)
-
-                    test_output, test_log_det = net(test_data)
-                    test_loss = flow_loss(test_output, test_log_det)
-                    test_bpd = (test_loss.item() * test_data.shape[0] - test_log_det_logit) * (
-                            1 / (np.log(2) * np.prod(test_data.shape))) + 8
-
-                tb_logger.add_scalar('training_loss', loss, global_step=step)
-                tb_logger.add_scalar('training_bpd', bpd, global_step=step)
-                tb_logger.add_scalar('test_loss', test_loss, global_step=step)
-                tb_logger.add_scalar('test_bpd', test_bpd, global_step=step)
+                # Do EMA
 
                 if step % self.config.training.log_interval == 0:
+                    net_test = ema_helper.ema_copy(net)
+                    net_test.eval()
+                    with torch.no_grad():
+                        try:
+                            test_data, _ = next(test_iter)
+                        except StopIteration:
+                            test_iter = iter(test_loader)
+                            test_data, _ = next(test_iter)
+
+                        test_data = test_data.to(self.config.device) * 255. / 256.
+                        test_data += torch.rand_like(test_data) / 256.
+                        test_data = self.logit_transform(test_data)
+
+                        test_log_det_logit = F.softplus(-test_data).sum() + F.softplus(test_data).sum() + np.prod(
+                            test_data.shape) * np.log(1 - 2 * self.config.data.lambda_logit)
+
+                        test_output, test_log_det = net_test(test_data)
+                        test_loss = flow_loss(test_output, test_log_det)
+                        test_bpd = (test_loss.item() * test_data.shape[0] - test_log_det_logit) * (
+                                1 / (np.log(2) * np.prod(test_data.shape))) + 8
+
+                    tb_logger.add_scalar('training_loss', loss, global_step=step)
+                    tb_logger.add_scalar('training_bpd', bpd, global_step=step)
+                    tb_logger.add_scalar('test_loss', test_loss, global_step=step)
+                    tb_logger.add_scalar('test_bpd', test_bpd, global_step=step)
+
                     logging.info(
                         "epoch: {}, batch: {}, training_loss: {}, test_loss: {}".format(epoch, batch_idx, loss.item(),
                                                                                         test_loss.item()))
@@ -221,7 +228,8 @@ class DensityEstimationRunner(object):
                             optimizer.state_dict(),
                             epoch + 1,
                             step,
-                            scheduler.state_dict()
+                            scheduler.state_dict(),
+                            ema_helper.state_dict()
                         ]
                         torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
                                                         'checkpoint_batch_{}.pth'.format(step)))
@@ -233,7 +241,8 @@ class DensityEstimationRunner(object):
                         optimizer.state_dict(),
                         epoch + 1,
                         step,
-                        scheduler.state_dict()
+                        scheduler.state_dict(),
+                        ema_helper.state_dict()
                     ]
                     torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
                                                     'checkpoint_last_batch.pth'))
@@ -247,7 +256,8 @@ class DensityEstimationRunner(object):
                     optimizer.state_dict(),
                     epoch + 1,
                     step,
-                    scheduler.state_dict()
+                    scheduler.state_dict(),
+                    ema_helper.state_dict()
                 ]
                 torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
                                                 'checkpoint_epoch_{}.pth'.format(epoch + 1)))
@@ -323,6 +333,7 @@ class DensityEstimationRunner(object):
 
         net = Net(self.config).to(self.config.device)
         net = DataParallelWithSampling(net)
+        ema_helper = EMAHelper(mu=0.999)
         optimizer = self.get_optimizer(net.parameters())
 
         def flow_loss(u, log_jacob, size_average=True):
@@ -340,6 +351,8 @@ class DensityEstimationRunner(object):
         net.load_state_dict(states[0])
         optimizer.load_state_dict(states[1])
         loaded_epoch = states[2]
+        ema_helper.load_state_dict(states[5])
+        ema_helper.ema(net)
 
         logging.info(
             "Loading the model from epoch {}".format(loaded_epoch))
