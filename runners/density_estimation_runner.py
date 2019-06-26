@@ -308,7 +308,6 @@ class DensityEstimationRunner(object):
 
         elif self.config.data.dataset == 'ImageNet':
             test_dataset = OordImageNet('/atlas/u/yangsong/datasets/oord_imagenet', train=False, transform=transform)
-                #ImageNet('/atlas/u/yangsong/datasets/imagenet', train=False, transform=transform)
 
         elif self.config.data.dataset == 'CELEBA':
             dataset = ImageFolder(root=os.path.join(self.args.run, 'datasets', 'celeba'),
