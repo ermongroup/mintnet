@@ -969,10 +969,9 @@ class Net(nn.Module):
 
             shape = (channel, image_size, image_size)
 
-            first = (layer_num == 0)
-            last = (layer_num == self.n_layers - 1)
+            
             self.layers.append(
-                self._make_layer(shape, 1, latent_size, channel, init_zero, first=first, last=last,
+                self._make_layer(shape, 1, latent_size, channel, init_zero,
                                  act_norm=config.model.act_norm,
                                  batch_norm=config.model.batch_norm))
             print('basic block')
