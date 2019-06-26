@@ -1,6 +1,5 @@
 # instead of sharing the middle weights for the kernal, we take the softplus/abs of the middle weights to make sure
 # the product is none negative
-
 import torch
 import torch.utils.data
 import torch.nn as nn
@@ -32,8 +31,6 @@ def elu_derivative(x, slope=1.0):
 # alpha * (exp(x) - 1)
 def elu_plusplus(x, slope=1e-3, alpha=1.0):
     slope1 = x + slope * x * x
-    #slope1 = slope * slope1
-    #slope1 = slope * slope1 * slope1
     x = torch.min(x, torch.ones_like(x) * 70.)
     #slope2 = torch.min(x.clone(), torch.zeros_like(x.clone()))
     slope2 = alpha * (torch.exp(x) - 1.)
@@ -291,7 +288,8 @@ class BasicBlock(nn.Module):
     def init_conv_weight(self, weight):
         # init.kaiming_uniform_(weight, math.sqrt(5.))
         # init.kaiming_normal_(weight, math.sqrt(5.))
-        init.xavier_normal_(weight, 0.005)
+        init.xavier_normal_(weight, 0.005) #for our previous model
+
 
     def init_conv_bias(self, weight, bias):
         fan_in, _ = init._calculate_fan_in_and_fan_out(weight)
@@ -299,8 +297,9 @@ class BasicBlock(nn.Module):
         init.uniform_(bias, -bound, bound)
 
     def __init__(self, config, shape, latent_dim, type, input_dim=3, kernel1=3, kernel2=3, kernel3=3, init_zero=False,
-                 last_activation=False):
+                 first_activation=False, last_activation=False):
         super().__init__()
+        self.first_activation = first_activation
         self.last_activation = last_activation
         self.input_dim = input_dim
         self.latent_dim = latent_dim
@@ -383,16 +382,22 @@ class BasicBlock(nn.Module):
     def forward(self, x):
         log_det = x[1]
         x = x[0]
-
         # masked_weight1 = (self.weight1 * (1. - self.center_mask1) + torch.abs(
         #    self.weight1) * self.center_mask1) * self.mask1
+
         ## more flexible diagonal
         masked_weight1 = self.weight1 * self.mask1
         masked_weight3 = self.weight3 * self.mask3
         ## more flexible diagonal
 
-        # shape: B x latent_output . input_dim x img_size x img_size
-        latent_output = F.conv2d(x, masked_weight1, bias=self.bias1, padding=self.padding1, stride=1)
+        if self.first_activation:
+            first_activation_derivative = self.non_linearity_derivative(x)
+            latent_output = self.non_linearity(x)
+            latent_output = F.conv2d(latent_output, masked_weight1, bias=self.bias1, padding=self.padding1, stride=1)
+        else:
+            # shape: B x latent_output . input_dim x img_size x img_size
+            latent_output = F.conv2d(x, masked_weight1, bias=self.bias1, padding=self.padding1, stride=1)
+
 
         kernel_mid_y, kernel_mid_x = masked_weight1.shape[-2] // 2, masked_weight1.shape[-1] // 2
         diag1 = torch.diagonal(
@@ -402,6 +407,9 @@ class BasicBlock(nn.Module):
         diag1 = self.non_linearity_derivative(latent_output). \
                     view(x.shape[0], self.latent_dim, self.input_dim, x.shape[-2], x.shape[-1]) \
                 * diag1[None, :, :, None, None]  # shape: B x latent_dim x input_dim x img_shape x img_shape
+
+        if self.first_activation:
+            diag1 = diag1 * first_activation_derivative[:, None, :, :, :]
 
         latent_output = self.non_linearity(latent_output)
 
@@ -427,8 +435,7 @@ class BasicBlock(nn.Module):
 
         center2 = center2.permute(0, 2, 1, 3, 4, 5)
         #center2 = sign_prods * torch.abs(center2) #original one
-        # import pdb
-        # pdb.set_trace()
+
         center2 = sign_prods[..., self.kernel3//2, self.kernel1//2].unsqueeze(-1).unsqueeze(-1) * torch.abs(center2)
         center2 = center2.permute(0, 2, 1, 3, 4, 5).contiguous().view_as(self.weight2)
 
@@ -470,10 +477,9 @@ class BasicBlock(nn.Module):
         if not self.last_activation:
             log_det += torch.sum(torch.log(diag + t), dim=(1, 2, 3))
         else:
-            activation_derivative = self.non_linearity_derivative(output).view(*diag.shape)
-            log_det += torch.sum(torch.log((diag + t) * activation_derivative), dim=(1, 2, 3))
+            last_activation_derivative = self.non_linearity_derivative(output).view(*diag.shape)
+            log_det += torch.sum(torch.log((diag + t) * last_activation_derivative), dim=(1, 2, 3))
             output = self.non_linearity(output)
-
 
         return output, log_det
 
@@ -558,10 +564,10 @@ class BasicBlock(nn.Module):
 
                 output = latent_output + shared_t * x  # shape: B x input_dim x img_shape x img_shape
 
-                if self.last_activation:
-                    activation_derivative = self.non_linearity_derivative(output).view(*diag.shape)
-                    derivative = derivative * activation_derivative
-                    output = self.non_linearity(output)
+                # if self.last_activation:
+                #     activation_derivative = self.non_linearity_derivative(output).view(*diag.shape)
+                #     derivative = derivative * activation_derivative
+                #     output = self.non_linearity(output)
 
                 return output, derivative
 
@@ -582,14 +588,23 @@ class BasicBlock(nn.Module):
             #     return x
 
             #our sampling method
+
+            def elu_inverse(z, alpha=1.0):
+                positive = z
+                negative = torch.log(z/alpha + 1)
+                return torch.where(z>0, positive, negative)
+
+
+            if self.last_activation:
+                z = elu_inverse(z)
+
+
             if self.type == 'A':
                 print("type A")
                 x = z / shared_t #[0,...]
                 for _ in tqdm(range(self.config.model.n_iters)):
                 #for _ in range(self.config.model.n_iters):
                     output, grad = value_and_grad(x)
-                    import pdb
-                    #pdb.set_trace()
                     x += (z - output) / (self.config.analysis.newton_lr * grad)
                     #(grad.max(dim=1, keepdim=True)[0].max(dim=2, keepdim=True)[0].max(dim=3, keepdim=True)[0])
                 return x
@@ -956,7 +971,6 @@ class Net(nn.Module):
         self.inplanes = channel = config.data.channels
 
         image_size = config.data.image_size
-
         init_zero = False
         init_zero_bound = config.model.zero_init_start
 
@@ -981,14 +995,17 @@ class Net(nn.Module):
                 init_zero = True
 
             shape = (channel, image_size, image_size)
+
+            first = (layer_num == 0)
+            last = (layer_num == self.n_layers - 1)
             self.layers.append(
-                self._make_layer(shape, 1, latent_size, channel, init_zero, act_norm=config.model.act_norm,
+                self._make_layer(shape, 1, latent_size, channel, init_zero, first=first, last=last, act_norm=config.model.act_norm,
                                  batch_norm=config.model.batch_norm))
             print('basic block')
 
         self.sampling_shape = shape
 
-    def _make_layer(self, shape, block_num, latent_dim, input_dim, init_zero, act_norm=False, batch_norm=False):
+    def _make_layer(self, shape, block_num, latent_dim, input_dim, init_zero, first=False, last=False, act_norm=False, batch_norm=False):
         layers = []
         for i in range(0, block_num):
             if act_norm:
@@ -996,15 +1013,21 @@ class Net(nn.Module):
             if batch_norm:
                 layers.append(FlowBatchNorm2d(shape[0]))
 
-            layers.append(BasicBlock(self.config, shape, latent_dim, type='A', input_dim=input_dim,
-                                     init_zero=init_zero, last_activation=True)) # add activation between two blocks
+            if not first:
+                layers.append(BasicBlock(self.config, shape, latent_dim, type='A', input_dim=input_dim,
+                                     init_zero=init_zero, first_activation=True))
+            else:
+                layers.append(BasicBlock(self.config, shape, latent_dim, type='A', input_dim=input_dim,
+                                         init_zero=init_zero))
+
             if act_norm:
                 layers.append(ActNorm(shape))
             if batch_norm:
                 layers.append(FlowBatchNorm2d(shape[0]))
 
             layers.append(BasicBlock(self.config, shape, latent_dim, type='B', input_dim=input_dim,
-                                     init_zero=init_zero))
+                                     init_zero=init_zero, first_activation=True))
+
         return SequentialWithSampling(*layers)
 
     def forward(self, x):
