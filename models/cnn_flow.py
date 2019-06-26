@@ -219,6 +219,8 @@ class ActNorm2D(nn.Module):
         return self._shift[None, :, None, None]
 
     def forward(self, x):
+        logdet = x[1]
+        x = x[0]
         if not self._init:
             with torch.no_grad():
                 # initialize params to input stats
@@ -232,7 +234,7 @@ class ActNorm2D(nn.Module):
                 self._log_scale.data = log_scale
                 self._init = True
         log_scale = self.log_scale()
-        logdet = log_scale.sum() * x.size(2) * x.size(3)
+        logdet += log_scale.sum() * x.size(2) * x.size(3)
         return x * torch.exp(log_scale) + self.shift(), logdet
 
     def inverse(self, x):
