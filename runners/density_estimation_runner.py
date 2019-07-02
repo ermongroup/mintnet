@@ -149,6 +149,7 @@ class DensityEstimationRunner(object):
             begin_epoch = states[2]
             step = states[3]
             scheduler.load_state_dict(states[4])
+            ema_helper.load_state_dict(states[5])
         else:
             step = 0
             begin_epoch = 0
@@ -235,20 +236,20 @@ class DensityEstimationRunner(object):
                                                         'checkpoint_batch_{}.pth'.format(step)))
                         torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))
 
-                if step == self.config.training.maximum_steps:
-                    states = [
-                        net.state_dict(),
-                        optimizer.state_dict(),
-                        epoch + 1,
-                        step,
-                        scheduler.state_dict(),
-                        ema_helper.state_dict()
-                    ]
-                    torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
-                                                    'checkpoint_last_batch.pth'))
-                    torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))
+                    if step == self.config.training.maximum_steps:
+                        states = [
+                            net.state_dict(),
+                            optimizer.state_dict(),
+                            epoch + 1,
+                            step,
+                            scheduler.state_dict(),
+                            ema_helper.state_dict()
+                        ]
+                        torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
+                                                        'checkpoint_last_batch.pth'))
+                        torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))
 
-                    return 0
+                        return 0
 
             if self.config.data.dataset != 'ImageNet' and (epoch + 1) % self.config.training.snapshot_interval == 0:
                 states = [
@@ -362,7 +363,7 @@ class DensityEstimationRunner(object):
         total_bpd = 0
         total_n_data = 0
 
-        logging.info("Generating samples")
+        # logging.info("Generating samples")
         ## samples = []
         ## for i in range(4):
         ##     z = torch.randn(100, self.config.data.channels * self.config.data.image_size * self.config.data.image_size,
@@ -372,13 +373,13 @@ class DensityEstimationRunner(object):
         ##     samples.append(samples_temp)
         ## samples = torch.cat(samples, dim=0)
 
-        z = torch.randn(64, self.config.data.channels * self.config.data.image_size * self.config.data.image_size,
-                       device=self.config.device)
-        samples = net.sampling(z)
-        samples = self.sigmoid_transform(samples)
-
-        samples = make_grid(samples, 8)
-        save_image(samples, 'samples_cifar10_30.png')
+        # z = torch.randn(64, self.config.data.channels * self.config.data.image_size * self.config.data.image_size,
+        #                device=self.config.device)
+        # samples = net.sampling(z)
+        # samples = self.sigmoid_transform(samples)
+        #
+        # samples = make_grid(samples, 8)
+        # save_image(samples, 'samples_cifar10_30.png')
 
         logging.info("Calculating overall bpd")
 

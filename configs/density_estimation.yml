@@ -1,11 +1,11 @@
 training:
-  n_epochs: 200 # cifar-10
-  #n_epochs: 15 # imagenet
-  maximum_steps: 350000 # imagenet
+  n_epochs: 400 # cifar-10
+#  n_epochs: 15 # imagenet
+#  maximum_steps: 350000 # imagenet
   batch_size: 32
-  log_interval: 10
+  log_interval: 100
   snapshot_interval: 10 # cifar-10
-  #snapshot_interval: 5000 # imagenet
+#  snapshot_interval: 5000 # imagenet
 
 data:
 #  dataset: MNIST
@@ -18,7 +18,7 @@ data:
   image_size: 32
   lambda_logit: 0.05
   channels: 3
-  horizontal_flip: false
+  horizontal_flip: true
 
 #  dataset: ImageNet
 #  image_size: 32
@@ -47,8 +47,9 @@ model:
 #  zero_init_start: 12
 
   ## cifar10 model
-  n_layers: 30 #10 #21
-  latent_size: 85
+  n_layers: 21 #10 #21
+#  latent_size: 85
+  latent_size: 64
   n_subsampling: 2
   act_norm: false
   batch_norm: false
@@ -60,7 +61,8 @@ model:
 
 optim:
   optimizer: Adam
-  lr: 0.0005  #0.001 change it back (flip might need smaller lr)
+#  lr: 0.001  #0.001 change it back (flip might need smaller lr)
+  lr: 0.0002
   beta1: 0.9
   weight_decay: 0.0005 #0
   amsgrad: true
