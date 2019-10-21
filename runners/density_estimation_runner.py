@@ -114,8 +114,9 @@ class DensityEstimationRunner(object):
 
         net = Net(self.config).to(self.config.device)
         net = DataParallelWithSampling(net)
-        ema_helper = EMAHelper(mu=0.999)
-        ema_helper.register(net)
+        if self.config.training.ema:
+            ema_helper = EMAHelper(mu=0.999)
+            ema_helper.register(net)
 
         optimizer = self.get_optimizer(net.parameters())
 
@@ -149,7 +150,8 @@ class DensityEstimationRunner(object):
             begin_epoch = states[2]
             step = states[3]
             scheduler.load_state_dict(states[4])
-            ema_helper.load_state_dict(states[5])
+            if self.config.training.ema:
+                ema_helper.load_state_dict(states[5])
         else:
             step = 0
             begin_epoch = 0
@@ -157,8 +159,7 @@ class DensityEstimationRunner(object):
         # Train the model
 
         for epoch in range(begin_epoch, self.config.training.n_epochs):
-            if self.config.data.dataset != 'ImageNet':
-                scheduler.step()
+
             for batch_idx, (data, _) in enumerate(dataloader):
                 net.train()
                 # Transform to logit space since pixel values ranging from 0-1
@@ -182,7 +183,8 @@ class DensityEstimationRunner(object):
                     return 0
 
                 optimizer.step()
-                ema_helper.update(net)
+                if self.config.training.ema:
+                    ema_helper.update(net)
 
                 bpd = (loss.item() * data.shape[0] - log_det_logit) / (np.log(2) * np.prod(data.shape)) + 8
 
@@ -190,7 +192,10 @@ class DensityEstimationRunner(object):
                 # Do EMA
 
                 if step % self.config.training.log_interval == 0:
-                    net_test = ema_helper.ema_copy(net)
+                    if self.config.training.ema:
+                        net_test = ema_helper.ema_copy(net)
+                    else:
+                        net_test = net
                     net_test.eval()
                     with torch.no_grad():
                         try:
@@ -230,8 +235,9 @@ class DensityEstimationRunner(object):
                             epoch + 1,
                             step,
                             scheduler.state_dict(),
-                            ema_helper.state_dict()
                         ]
+                        if self.config.training.ema:
+                            states.append(ema_helper.state_dict())
                         torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
                                                         'checkpoint_batch_{}.pth'.format(step)))
                         torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))
@@ -243,13 +249,17 @@ class DensityEstimationRunner(object):
                             epoch + 1,
                             step,
                             scheduler.state_dict(),
-                            ema_helper.state_dict()
                         ]
+                        if self.config.training.ema:
+                            states.append(ema_helper.state_dict())
                         torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
                                                         'checkpoint_last_batch.pth'))
                         torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))
 
                         return 0
+
+            if self.config.data.dataset != 'ImageNet':
+                scheduler.step()
 
             if self.config.data.dataset != 'ImageNet' and (epoch + 1) % self.config.training.snapshot_interval == 0:
                 states = [
@@ -258,8 +268,9 @@ class DensityEstimationRunner(object):
                     epoch + 1,
                     step,
                     scheduler.state_dict(),
-                    ema_helper.state_dict()
                 ]
+                if self.config.training.ema:
+                    states.append(ema_helper.state_dict())
                 torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc,
                                                 'checkpoint_epoch_{}.pth'.format(epoch + 1)))
                 torch.save(states, os.path.join(self.args.run, 'logs', self.args.doc, 'checkpoint.pth'))
@@ -333,7 +344,8 @@ class DensityEstimationRunner(object):
 
         net = Net(self.config).to(self.config.device)
         net = DataParallelWithSampling(net)
-        ema_helper = EMAHelper(mu=0.999)
+        if self.config.training.ema:
+            ema_helper = EMAHelper(mu=0.999)
         optimizer = self.get_optimizer(net.parameters())
 
         def flow_loss(u, log_jacob, size_average=True):
@@ -351,8 +363,9 @@ class DensityEstimationRunner(object):
         net.load_state_dict(states[0])
         optimizer.load_state_dict(states[1])
         loaded_epoch = states[2]
-        ema_helper.load_state_dict(states[5])
-        ema_helper.ema(net)
+        if self.config.training.ema:
+            ema_helper.load_state_dict(states[5])
+            ema_helper.ema(net)
 
         logging.info(
             "Loading the model from epoch {}".format(loaded_epoch))

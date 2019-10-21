@@ -91,7 +91,7 @@ def parse_args_and_config():
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
         torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.benchmark = True
 
     return args, new_config
 

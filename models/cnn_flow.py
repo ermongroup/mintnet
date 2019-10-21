@@ -406,6 +406,12 @@ class BasicBlock(nn.Module):
                 * diag1[None, :, :, None, None]  # shape: B x latent_dim x input_dim x img_shape x img_shape
 
         latent_output = self.non_linearity(latent_output)
+        if self.config.model.dropout and self.training:
+            probs = torch.ones_like(latent_output) * self.config.model.dropout_rate
+            drops = torch.bernoulli(probs).float()
+            latent_output = latent_output * drops / self.config.model.dropout_rate
+            diag1 *= (drops / self.config.model.dropout_rate).view(x.shape[0], self.latent_dim, self.input_dim,
+                                                                   x.shape[-2], x.shape[-1])
 
         # masked_weight2 = (self.weight2 * (1. - self.center_mask2) + torch.abs(
         #    self.weight2) * self.center_mask2) * self.mask2

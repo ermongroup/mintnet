@@ -1,9 +1,10 @@
 training:
-  n_epochs: 400 # cifar-10
+  n_epochs: 350 # cifar-10
 #  n_epochs: 15 # imagenet
 #  maximum_steps: 350000 # imagenet
   batch_size: 32
   log_interval: 100
+  ema: true
   snapshot_interval: 10 # cifar-10
 #  snapshot_interval: 5000 # imagenet
 
@@ -47,22 +48,24 @@ model:
 #  zero_init_start: 12
 
   ## cifar10 model
-  n_layers: 21 #10 #21
-#  latent_size: 85
-  latent_size: 64
+#  n_layers: #10 #21
+  n_layers: 24
+  latent_size: 85
+#  latent_size: 100
   n_subsampling: 2
   act_norm: false
   batch_norm: false
   rgb_last: true
   zero_init_start: 12 #12
 
+  dropout: false
+  dropout_rate: 0.5
   # for sampling
   n_iters: 100 #120
 
 optim:
   optimizer: Adam
-#  lr: 0.001  #0.001 change it back (flip might need smaller lr)
-  lr: 0.0002
+  lr: 0.0005 #0.001 change it back (flip might need smaller lr)
   beta1: 0.9
   weight_decay: 0.0005 #0
   amsgrad: true
