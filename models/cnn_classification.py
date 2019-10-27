@@ -10,36 +10,10 @@ import tqdm
 from functools import partial
 
 
-class ActNorm(nn.Module):
-    """ An implementation of a activation normalization layer
-    from Glow: Generative Flow with Invertible 1x1 Convolutions
-    (https://arxiv.org/abs/1807.03039).
-    """
-
-    def __init__(self, shape):
-        super(ActNorm, self).__init__()
-        self.weight = nn.Parameter(torch.ones(shape))
-        self.bias = nn.Parameter(torch.zeros(shape))
-        self.initialized = False
-
-    def forward(self, x):
-        inputs = x
-        if self.initialized is False:
-            self.weight.data.copy_(1 / (inputs.std(0) + 1e-5))
-            self.bias.data.copy_(inputs.mean(0))
-            self.initialized = True
-
-        return (inputs - self.bias) * self.weight
-
-
-# DO NOT FORGET ACTNORM!!!
 class BasicBlock(nn.Module):
     # Input_dim should be 1(grey scale image) or 3(RGB image), or other dimension if use SpaceToDepth
-
     def init_conv_weight(self, weight):
         init.kaiming_uniform_(weight, math.sqrt(5.))
-        # init.kaiming_normal_(weight, math.sqrt(5.))
-        # init.xavier_normal_(weight, 0.1)
 
     def init_conv_bias(self, weight, bias):
         fan_in, _ = init._calculate_fan_in_and_fan_out(weight)
@@ -70,7 +44,6 @@ class BasicBlock(nn.Module):
 
         self.weight2 = nn.Parameter(
             torch.randn(input_dim * latent_dim, input_dim * latent_dim, kernel2, kernel2) * 1e-5
-            # torch.zeros(input_dim * latent_dim, input_dim * latent_dim, kernel2, kernel2)
         )
         self.bias2 = nn.Parameter(
             torch.zeros(input_dim * latent_dim)
@@ -81,7 +54,6 @@ class BasicBlock(nn.Module):
             self.init_conv_bias(self.weight2, self.bias2)
 
         self.weight3 = nn.Parameter(
-            # torch.zeros(input_dim, input_dim * latent_dim, kernel3, kernel3)
             torch.randn(input_dim, input_dim * latent_dim, kernel3, kernel3) * 1e-5
         )
 
@@ -93,7 +65,6 @@ class BasicBlock(nn.Module):
             self.init_conv_bias(self.weight3, self.bias3)
 
         # Define masks
-
         # Mask out the element above diagonal
         self.type = type
         self.mask1 = np.ones(self.weight1.shape, dtype=np.float32)
@@ -120,49 +91,15 @@ class BasicBlock(nn.Module):
         self.config = config
 
 
-    def check_nan(self, inputs):
-        if torch.isnan(inputs).any():
-            import pdb
-            pdb.set_trace()
-            a = 1
-
-    '''
+   
     def forward(self, x):
-        masked_weight1 = (self.weight1 * (1. - self.center_mask1) + torch.abs(
-            self.weight1) * self.center_mask1) * self.mask1
-        # shape: B x latent_output . input_dim x img_size x img_size
-        latent_output = F.conv2d(x, masked_weight1, bias=self.bias1, padding=self.padding1, stride=1)
-        latent_output = self.non_linearity(latent_output)
-
-        masked_weight2 = (self.weight2 * (1. - self.center_mask2) + torch.abs(
-            self.weight2) * self.center_mask2) * self.mask2
-
-        latent_output = F.conv2d(latent_output, masked_weight2, bias=self.bias2, padding=self.padding2, stride=1)
-        latent_output = self.non_linearity(latent_output)
-
-        masked_weight3 = (self.weight3 * (1. - self.center_mask3) + torch.abs(
-            self.weight3) * self.center_mask3) * self.mask3
-
-        latent_output = F.conv2d(latent_output, masked_weight3, bias=self.bias3, padding=self.padding3, stride=1)
-
-        t = torch.max(torch.abs(self.t), torch.tensor(1e-12, device=x.device))
-        output = latent_output + t * x
-
-        return output
-    '''
-
-    def forward(self, x):
-        ## more flexible diagonal
         masked_weight1 = self.weight1 * self.mask1
         masked_weight3 = self.weight3 * self.mask3
-        ## more flexible diagonal
 
         # shape: B x latent_output . input_dim x img_size x img_size
-
         latent_output = F.conv2d(x, masked_weight1, bias=self.bias1, padding=self.padding1, stride=1)
         latent_output = self.non_linearity(latent_output)
 
-        ## more flexible diagonal
         center1 = masked_weight1 * self.center_mask1  # shape: latent_dim.input_dim x input_dim x kernel x kernel
         center3 = masked_weight3 * self.center_mask3  # shape: input_dim x latent_dim.input_dim x kernel x kernel
 
@@ -182,7 +119,6 @@ class BasicBlock(nn.Module):
         center2 = sign_prods * torch.abs(center2)
         center2 = center2.permute(0, 2, 1, 3, 4, 5).contiguous().view_as(self.weight2)
         masked_weight2 = (center2 * self.center_mask2 + self.weight2 * (1. - self.center_mask2)) * self.mask2
-        ## more flexible diagonal
 
         latent_output = F.conv2d(latent_output, masked_weight2, bias=self.bias2, padding=self.padding2, stride=1)
         latent_output = self.non_linearity(latent_output)
@@ -268,31 +204,20 @@ class Net(nn.Module):
 
             shape = (channel, image_size, image_size)
             self.layers.append(
-                self._make_layer(shape, 1, latent_size, channel, init_zero, act_norm=config.model.act_norm,
+                self._make_layer(shape, 1, latent_size, channel, init_zero,
                                  batch_norm=config.model.batch_norm))
             print('basic block')
 
-        if config.model.act_norm:
-            self.pre_fc = nn.Sequential(
-                ActNorm(shape),
-                nn.ELU()
-            )
-        else:
-            self.pre_fc = nn.ELU()
-
+        self.pre_fc = nn.ELU()
         self.fc = nn.Linear(shape[0], config.data.num_classes)
 
-    def _make_layer(self, shape, block_num, latent_dim, input_dim, init_zero, act_norm=False, batch_norm=False):
+    def _make_layer(self, shape, block_num, latent_dim, input_dim, init_zero, batch_norm=False):
         layers = []
         for i in range(0, block_num):
-            if act_norm:
-                layers.append(ActNorm(shape))
             if batch_norm:
                 layers.append(nn.BatchNorm2d(shape[0]))
             layers.append(BasicBlock(self.config, shape, latent_dim, type='A', input_dim=input_dim,
                                      init_zero=init_zero))
-            if act_norm:
-                layers.append(ActNorm(shape))
             if batch_norm:
                 layers.append(nn.BatchNorm2d(shape[0]))
             layers.append(BasicBlock(self.config, shape, latent_dim, type='B', input_dim=input_dim,

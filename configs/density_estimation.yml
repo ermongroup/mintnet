@@ -33,17 +33,13 @@ model:
 #  n_layers: 20
 #  latent_size: 45
 #  n_subsampling: 2
-#  act_norm: false
 #  rgb_last: true
-#  batch_norm: false
 #  zero_init_start: 100
 
 #  ## cifar10 model
 #  n_layers: 21
 #  latent_size: 85
 #  n_subsampling: 2
-#  act_norm: false
-#  batch_norm: false
 #  rgb_last: true
 #  zero_init_start: 12
 
@@ -51,15 +47,10 @@ model:
 #  n_layers: #10 #21
   n_layers: 24
   latent_size: 85
-#  latent_size: 100
   n_subsampling: 2
-  act_norm: false
-  batch_norm: false
   rgb_last: true
   zero_init_start: 12 #12
 
-  dropout: false
-  dropout_rate: 0.5
   # for sampling
   n_iters: 100 #120
 
@@ -71,10 +62,4 @@ optim:
   amsgrad: true
   adam_eps: 0.0001
 
-analysis:
-  newton_iter: 350 #21
-  newton_lr: 3.5 #3.5 #1.1 #1.15 #3.5 #1.1
-  interval: 0.05
-  lower_bound: 1.05
-  upper_bound: 1.25
 

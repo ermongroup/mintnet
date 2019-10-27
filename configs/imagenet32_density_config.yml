@@ -1,13 +1,13 @@
-data: 
+data:
   channels: 3
-  dataset: CIFAR10
-  horizontal_flip: true
+  dataset: ImageNet
+  horizontal_flip: false
   image_size: 32
   lambda_logit: 0.05
 
 model:
   latent_size: 85
-  n_iters: 100
+  n_iters: 100 # for sampling
   n_layers: 21
   n_subsampling: 2
   batch_norm: false
@@ -15,11 +15,12 @@ model:
   zero_init_start: 12
 
 training:
-  n_epochs: 300
+  n_epochs: 15
   batch_size: 32
   log_interval: 100
-  snapshot_interval: 10
-  ema: false
+  maximum_steps: 350000
+  snapshot_interval: 5000
+  ema: true
 
 optim:
   optimizer: Adam
