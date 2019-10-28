@@ -11,7 +11,7 @@ enabling their generative use as flow models.
 
 <p align="center">
 <img src="https://github.com/chenlin9/Fully-Convolutional-Normalizing-Flows/blob/release/samples/MNIST_samples.png" width="200">
-<img src="https://github.com/chenlin9/Fully-Convolutional-Normalizing-Flows/blob/release/mint_images/CIFAR10_samples.png" width="200">
+<img src="https://github.com/chenlin9/Fully-Convolutional-Normalizing-Flows/blob/release/samples/CIFAR10_samples.png" width="200">
 <img src="https://github.com/chenlin9/Fully-Convolutional-Normalizing-Flows/blob/release/samples/ImageNet_samples.png" width="200">
 </p>
 
