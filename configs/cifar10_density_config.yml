@@ -28,3 +28,6 @@ optim:
   weight_decay: 0
   amsgrad: true
   adam_eps: 0.0001
+
+analysis:
+  newton_lr: 1.1

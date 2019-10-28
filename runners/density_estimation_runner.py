@@ -335,7 +335,7 @@ class DensityEstimationRunner(object):
         samples = self.sigmoid_transform(samples)
 
         samples = make_grid(samples, 8)
-        save_image(samples, 'samples_cifar10_30.png')
+        save_image(samples, './samples/{}_samples.png'.format(self.config.data.dataset))
 
         logging.info("Calculating overall bpd")
 
