@@ -15,6 +15,16 @@ enabling their generative use as flow models.
 <img src="https://github.com/chenlin9/Fully-Convolutional-Normalizing-Flows/blob/release/samples/ImageNet_samples.png" width="200">
 </p>
 
+## Dependencies
+
+The following are packages needed for running this repo.
+
+- PyTorch==1.1.0
+- tqdm
+- tensorboardX
+- Scipy
+- PyYAML
+- Numba
 
 ## Running the experiments
 ```bash
