@@ -10,8 +10,7 @@ enabling their generative use as flow models.
 
 
 <p align="center">
-<img src="https://github.com/pclucas14/pixel-cnn-pp/blob/master/images/pcnn_lr:0.00020_nr-resnet5_nr-filters160_143.png">
-<img src="https://github.com/pclucas14/pixel-cnn-pp/blob/master/images/pcnn_lr:0.00020_nr-resnet5_nr-filters160_122.png">
-<img src="https://github.com/pclucas14/pixel-cnn-pp/blob/master/images/pcnn_lr:0.00020_nr-resnet5_nr-filters160_137.png">
-<img src="https://github.com/pclucas14/pixel-cnn-pp/blob/master/images/pcnn_lr:0.00020_nr-resnet5_nr-filters160_101.png">
+<img src="https://github.com/chenlin9/Fully-Convolutional-Normalizing-Flows/blob/release/mint_images/mnist_samples.png">
+<img src="https://github.com/chenlin9/Fully-Convolutional-Normalizing-Flows/blob/release/mint_images/CIFAR10_samples.png">
+<img src="https://github.com/chenlin9/Fully-Convolutional-Normalizing-Flows/blob/release/mint_images/imageNet_samples.png">
 </p>
