@@ -10,7 +10,6 @@ model:
   n_iters: 100 # for sampling
   n_layers: 20
   n_subsampling: 2
-  batch_norm: false
   rgb_last: true
   zero_init_start: 12
 

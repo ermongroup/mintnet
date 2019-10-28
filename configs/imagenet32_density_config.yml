@@ -10,7 +10,6 @@ model:
   n_iters: 100 # for sampling
   n_layers: 21
   n_subsampling: 2
-  batch_norm: false
   rgb_last: true
   zero_init_start: 12
 
@@ -20,7 +19,7 @@ training:
   log_interval: 100
   maximum_steps: 350000
   snapshot_interval: 5000
-  ema: true
+  ema: false
 
 optim:
   optimizer: Adam
