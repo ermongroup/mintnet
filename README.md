@@ -14,3 +14,23 @@ enabling their generative use as flow models.
 <img src="https://github.com/chenlin9/Fully-Convolutional-Normalizing-Flows/blob/release/mint_images/CIFAR10_samples.png" width="200">
 <img src="https://github.com/chenlin9/Fully-Convolutional-Normalizing-Flows/blob/release/samples/ImageNet_samples.png" width="200">
 </p>
+
+
+## Running the experiments
+```bash
+python main.py --runner [runner name] --config [config file]
+```
+
+Here `runner name` is one of the following:
+
+- `DensityEstimationRunner`. Experiments on MintNet density estimation.
+- `ClassificationRunner`. Experiments on MintNet classification.
+
+and `config file` is the directory of some YAML file in `configs/`.
+
+
+For example, if you want to train MintNet density estimation model on MNIST, just run
+
+```bash
+python main.py --runner DensityEstimationRunner --config mnist_density_config.yml
+```
