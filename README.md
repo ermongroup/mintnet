@@ -28,7 +28,7 @@ The following are packages needed for running this repo.
 
 ## Running the experiments
 ```bash
-python main.py --runner [runner name] --config [config file]
+python main.py --runner [runner name] --config [config file] --doc [experiment folder name]
 ```
 
 Here `runner name` is one of the following:
@@ -36,7 +36,7 @@ Here `runner name` is one of the following:
 - `DensityEstimationRunner`. Experiments on MintNet density estimation.
 - `ClassificationRunner`. Experiments on MintNet classification.
 
-and `config file` is the directory of some YAML file in `configs/`.
+`config file` is the directory of some YAML file in `configs/`, and `experiment folder name` is the folder names in `run/`.
 
 
 For example, if you want to train MintNet density estimation model on MNIST, just run
@@ -44,3 +44,9 @@ For example, if you want to train MintNet density estimation model on MNIST, jus
 ```bash
 python main.py --runner DensityEstimationRunner --config mnist_density_config.yml
 ```
+
+## Checkpoints
+
+Checkpoints for both density estimation and classification can be downloaded from [https://drive.google.com/file/d/12kGMMg0ivJI5y32hRouhZuddr9cJxfiR/view?usp=sharing](https://drive.google.com/file/d/12kGMMg0ivJI5y32hRouhZuddr9cJxfiR/view?usp=sharing)
+
+Unzip it to `<root folder>/run`.
