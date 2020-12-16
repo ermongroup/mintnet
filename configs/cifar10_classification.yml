@@ -5,9 +5,9 @@ training:
   snapshot_interval: 10
 
 data:
-  dataset: MNIST
-  image_size: 28
-  channels: 1
+  dataset: CIFAR10
+  image_size: 32
+  channels: 3
   num_classes: 10
   augmentation: true
 

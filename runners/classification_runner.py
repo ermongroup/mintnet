@@ -212,7 +212,7 @@ class ClassificationRunner(object):
                 transforms.Normalize((0.5,), (0.5,))
             ])
 
-            test_dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist_test'), train=True, download=True,
+            test_dataset = MNIST(os.path.join(self.args.run, 'datasets', 'mnist_test'), train=False, download=True,
                                  transform=transform)
 
         elif self.config.data.dataset == 'CELEBA':
